@@ -220,7 +220,7 @@ def cmd_convert(args, config: dict) -> int:
         return 1
 
     # Load and resolve modifiers for this template
-    all_modifiers = load_modifiers(config)
+    all_modifiers = load_modifiers()
     modifiers = resolve_modifiers(all_modifiers, tmpl_meta.get("ignore", []))
 
     # Read and parse markdown

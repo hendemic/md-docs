@@ -95,14 +95,15 @@ def resolve_template(name: str, config: dict | None = None) -> Path:
     return template_dir
 
 
-def load_modifiers(config: dict | None = None) -> dict:
+def load_modifiers() -> dict:
     """
-    Load modifiers.toml from the templates directory.
+    Load modifiers.toml from the app repo root.
 
     Returns the raw dict of modifier definitions keyed by modifier id.
     """
-    config = config or load_config()
-    modifiers_path = Path(config["templates_dir"]) / "modifiers.toml"
+    # modifiers.toml lives at the app repo root (one level up from src/)
+    app_root = Path(__file__).parent.parent
+    modifiers_path = app_root / "modifiers.toml"
     if not modifiers_path.is_file():
         return {}
     try:
