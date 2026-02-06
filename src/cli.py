@@ -504,35 +504,35 @@ def main() -> int:
     args = parser.parse_args()
     config = load_config()
 
-    if args.command == "convert":
-        return cmd_convert(args, config)
-    elif args.command == "templates":
-        tcmd = getattr(args, "templates_cmd", None)
-        if tcmd == "list":
-            return cmd_templates_list(args, config)
-        elif tcmd == "install":
-            return cmd_templates_install(args, config)
-        elif tcmd == "update":
-            return cmd_templates_update(args, config)
-        elif tcmd == "remove":
-            return cmd_templates_remove(args, config)
-        else:
-            parser.parse_args(["templates", "--help"])
-    elif args.command == "brands":
-        bcmd = getattr(args, "brands_cmd", None)
-        if bcmd == "list":
-            return cmd_brands_list(args, config)
-        else:
-            parser.parse_args(["brands", "--help"])
-    elif args.command == "doctor":
-        return cmd_doctor(args, config)
-    elif args.command == "update":
-        return cmd_update(args, config)
-    elif args.command == "uninstall":
-        return cmd_uninstall(args, config)
-    else:
-        parser.print_help()
-        return 0
+    match args.command:
+        case "convert":
+            return cmd_convert(args, config)
+        case "templates":
+            match getattr(args, "templates_cmd", None):
+                case "list":
+                    return cmd_templates_list(args, config)
+                case "install":
+                    return cmd_templates_install(args, config)
+                case "update":
+                    return cmd_templates_update(args, config)
+                case "remove":
+                    return cmd_templates_remove(args, config)
+                case _:
+                    parser.parse_args(["templates", "--help"])
+        case "brands":
+            match getattr(args, "brands_cmd", None):
+                case "list":
+                    return cmd_brands_list(args, config)
+                case _:
+                    parser.parse_args(["brands", "--help"])
+        case "doctor":
+            return cmd_doctor(args, config)
+        case "update":
+            return cmd_update(args, config)
+        case "uninstall":
+            return cmd_uninstall(args, config)
+        case _:
+            parser.print_help()
 
     return 0
 
