@@ -378,6 +378,41 @@ def cmd_doctor(args, config: dict) -> int:
     return 0 if ok else 1
 
 
+def cmd_update(args, config: dict) -> int:
+    """Handle the 'update' subcommand."""
+    import os
+
+    app_dir = Path(__file__).parent.parent
+    script = app_dir / "utility" / "update.sh"
+
+    if not script.is_file():
+        print("Error: update.sh not found. Reinstall md-docs.", file=sys.stderr)
+        return 1
+
+    # Build command with optional 'dev' argument
+    cmd = ["bash", str(script)]
+    if getattr(args, "dev", False):
+        cmd.append("dev")
+
+    # exec replaces this process with bash, so Python isn't running during update
+    os.execvp("bash", cmd)
+
+
+def cmd_uninstall(args, config: dict) -> int:
+    """Handle the 'uninstall' subcommand."""
+    import os
+
+    app_dir = Path(__file__).parent.parent
+    script = app_dir / "utility" / "uninstall.sh"
+
+    if not script.is_file():
+        print("Error: uninstall.sh not found.", file=sys.stderr)
+        return 1
+
+    # exec replaces this process with bash
+    os.execvp("bash", ["bash", str(script)])
+
+
 # ---------------------------------------------------------------------------
 # Argument parser
 # ---------------------------------------------------------------------------
@@ -434,6 +469,20 @@ def build_parser() -> argparse.ArgumentParser:
         "doctor", help="Check system dependencies and configuration"
     )
 
+    # --- update ---
+    update_parser = subparsers.add_parser(
+        "update", help="Update md-docs to the latest version"
+    )
+    update_parser.add_argument(
+        "dev", nargs="?", const=True, default=False,
+        help="Update to latest development build instead of stable"
+    )
+
+    # --- uninstall ---
+    subparsers.add_parser(
+        "uninstall", help="Uninstall md-docs"
+    )
+
     return parser
 
 
@@ -469,6 +518,10 @@ def main() -> int:
             parser.parse_args(["brands", "--help"])
     elif args.command == "doctor":
         return cmd_doctor(args, config)
+    elif args.command == "update":
+        return cmd_update(args, config)
+    elif args.command == "uninstall":
+        return cmd_uninstall(args, config)
     else:
         parser.print_help()
         return 0

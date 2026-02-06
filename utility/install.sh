@@ -75,6 +75,7 @@ fi
 # Copy source to install location
 mkdir -p "$APP_DIR"
 cp -r "$REPO_DIR/src" "$APP_DIR/src"
+cp -r "$REPO_DIR/utility" "$APP_DIR/utility"
 cp "$REPO_DIR/pyproject.toml" "$APP_DIR/pyproject.toml"
 cp "$REPO_DIR/modifiers.toml" "$APP_DIR/modifiers.toml"
 info "Copied source to $APP_DIR"
