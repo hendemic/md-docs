@@ -493,6 +493,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     ensure_dirs()
     parser = build_parser()
+
+    # If first arg looks like a file path (not a subcommand), assume 'convert'
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
+        known_commands = {"convert", "templates", "brands", "doctor", "update", "uninstall"}
+        if sys.argv[1] not in known_commands:
+            # Insert 'convert' as the command
+            sys.argv.insert(1, "convert")
+
     args = parser.parse_args()
     config = load_config()
 
