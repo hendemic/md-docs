@@ -384,11 +384,11 @@ def cmd_doctor(args, config: dict) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="md-docs",
+        prog="mdocs",
         description="Generate professional documents from Markdown.",
     )
     parser.add_argument(
-        "-v", "--version", action="version", version=f"md-docs {get_version()}"
+        "-v", "--version", action="version", version=f"mdocs {get_version()}"
     )
     subparsers = parser.add_subparsers(dest="command")
 

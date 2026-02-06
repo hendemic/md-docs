@@ -17,6 +17,10 @@ dependencies = [
 interactive = [
     "simple-term-menu>=1.6",
 ]
+dev = [
+    "pytest>=7.0",
+    "pytest-mock>=3.10",
+]
 
 [project.scripts]
 md-docs = "cli:main"

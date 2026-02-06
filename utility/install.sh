@@ -3,11 +3,11 @@ set -euo pipefail
 
 # md-docs installer
 # Installs md-docs into ~/.local/share/md-docs/app/ with a venv,
-# and places a wrapper script at ~/.local/bin/md-docs.
+# and places a wrapper script at ~/.local/bin/mdocs.
 
 APP_DIR="$HOME/.local/share/md-docs/app"
 BIN_DIR="$HOME/.local/bin"
-WRAPPER="$BIN_DIR/md-docs"
+WRAPPER="$BIN_DIR/mdocs"
 CONFIG_DIR="$HOME/.config/md-docs"
 DATA_DIR="$HOME/.local/share/md-docs"
 CACHE_DIR="$HOME/.cache/md-docs"
@@ -131,5 +131,5 @@ if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
 fi
 
 echo "Next steps:"
-echo "  md-docs doctor            # verify setup"
-echo "  md-docs templates list    # see installed templates"
+echo "  mdocs doctor            # verify setup"
+echo "  mdocs templates install # install templates from repo"

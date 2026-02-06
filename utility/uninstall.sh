@@ -6,7 +6,7 @@ set -euo pipefail
 
 APP_DIR="$HOME/.local/share/md-docs/app"
 BIN_DIR="$HOME/.local/bin"
-WRAPPER="$BIN_DIR/md-docs"
+WRAPPER="$BIN_DIR/mdocs"
 CONFIG_DIR="$HOME/.config/md-docs"
 DATA_DIR="$HOME/.local/share/md-docs"
 CACHE_DIR="$HOME/.cache/md-docs"
