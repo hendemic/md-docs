@@ -13,7 +13,7 @@ import mistune
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
-from config import load_config, ensure_dirs
+from config import load_config, ensure_dirs, DATA_DIR
 from converter import LatexRenderer, escape_latex, postprocess_latex
 from compiler import compile, check_latex_engine
 from templates import (
@@ -22,14 +22,32 @@ from templates import (
     resolve_template,
     resolve_brand,
     get_template_metadata,
+    get_brand_metadata,
     load_modifiers,
     resolve_modifiers,
+    clone_templates_repo,
+    pull_templates_repo,
+    sync_from_cache,
+    remove_template,
+    _scan_dir,
 )
 
 try:
     from simple_term_menu import TerminalMenu
 except ImportError:
     TerminalMenu = None
+
+
+# ---------------------------------------------------------------------------
+# Version
+# ---------------------------------------------------------------------------
+
+def get_version() -> str:
+    """Read the installed version from the data dir, or fall back to 'dev'."""
+    version_file = DATA_DIR / ".version"
+    if version_file.is_file():
+        return version_file.read_text().strip()
+    return "dev"
 
 
 # ---------------------------------------------------------------------------
@@ -273,6 +291,61 @@ def cmd_brands_list(args, config: dict) -> int:
     return 0
 
 
+def _check_git() -> bool:
+    """Check if git is available on the system."""
+    import shutil
+    return shutil.which("git") is not None
+
+
+def cmd_templates_install(args, config: dict) -> int:
+    """Handle 'templates install' subcommand."""
+    if not _check_git():
+        print("Error: git is required but not found. Install git and try again.", file=sys.stderr)
+        return 1
+    try:
+        print("Cloning templates repository...")
+        clone_templates_repo()
+        templates, brands = sync_from_cache(config)
+        print(f"Installed {len(templates)} template(s): {', '.join(templates)}")
+        print(f"Installed {len(brands)} brand(s): {', '.join(brands)}")
+        return 0
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_templates_update(args, config: dict) -> int:
+    """Handle 'templates update' subcommand."""
+    if not _check_git():
+        print("Error: git is required but not found. Install git and try again.", file=sys.stderr)
+        return 1
+    try:
+        print("Updating templates...")
+        pull_templates_repo()
+        templates, brands = sync_from_cache(config)
+        print(f"Synced {len(templates)} template(s): {', '.join(templates)}")
+        print(f"Synced {len(brands)} brand(s): {', '.join(brands)}")
+        return 0
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_templates_remove(args, config: dict) -> int:
+    """Handle 'templates remove' subcommand."""
+    name = args.name
+    try:
+        if remove_template(name, config):
+            print(f"Removed template: {name}")
+        else:
+            print(f"Template '{name}' not found.", file=sys.stderr)
+            return 1
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_doctor(args, config: dict) -> int:
     """Handle the 'doctor' subcommand."""
     ok = True
@@ -286,15 +359,21 @@ def cmd_doctor(args, config: dict) -> int:
         print(f"{engine}: NOT FOUND")
         ok = False
 
-    # Check templates directory
+    # Check templates directories
     templates_dir = Path(config["templates_dir"])
-    count = len(list_templates(config))
-    print(f"Templates dir: {templates_dir} ({count} installed)")
+    custom_templates_dir = Path(config["custom_templates_dir"])
+    repo_count = len(_scan_dir(templates_dir, get_template_metadata))
+    custom_count = len(_scan_dir(custom_templates_dir, get_template_metadata))
+    print(f"Templates:        {templates_dir} ({repo_count} installed)")
+    print(f"Custom templates: {custom_templates_dir} ({custom_count} installed)")
 
-    # Check brands directory
+    # Check brands directories
     brands_dir = Path(config["brands_dir"])
-    count = len(list_brands(config))
-    print(f"Brands dir: {brands_dir} ({count} installed)")
+    custom_brands_dir = Path(config["custom_brands_dir"])
+    repo_count = len(_scan_dir(brands_dir, get_brand_metadata))
+    custom_count = len(_scan_dir(custom_brands_dir, get_brand_metadata))
+    print(f"Brands:           {brands_dir} ({repo_count} installed)")
+    print(f"Custom brands:    {custom_brands_dir} ({custom_count} installed)")
 
     return 0 if ok else 1
 
@@ -307,6 +386,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="md-docs",
         description="Generate professional documents from Markdown.",
+    )
+    parser.add_argument(
+        "-v", "--version", action="version", version=f"md-docs {get_version()}"
     )
     subparsers = parser.add_subparsers(dest="command")
 
@@ -329,14 +411,18 @@ def build_parser() -> argparse.ArgumentParser:
         "-d", "--directory", help="Output directory"
     )
 
-    # --- templates list ---
+    # --- templates ---
     templates_parser = subparsers.add_parser(
         "templates", help="Manage templates"
     )
     templates_sub = templates_parser.add_subparsers(dest="templates_cmd")
     templates_sub.add_parser("list", help="List installed templates")
+    templates_sub.add_parser("install", help="Install templates from the repository")
+    templates_sub.add_parser("update", help="Update installed templates")
+    remove_parser = templates_sub.add_parser("remove", help="Remove a template")
+    remove_parser.add_argument("name", help="Template name to remove")
 
-    # --- brands list ---
+    # --- brands ---
     brands_parser = subparsers.add_parser(
         "brands", help="Manage brands"
     )
@@ -364,13 +450,23 @@ def main() -> int:
     if args.command == "convert":
         return cmd_convert(args, config)
     elif args.command == "templates":
-        if getattr(args, "templates_cmd", None) == "list":
+        tcmd = getattr(args, "templates_cmd", None)
+        if tcmd == "list":
             return cmd_templates_list(args, config)
-        parser.parse_args(["templates", "--help"])
+        elif tcmd == "install":
+            return cmd_templates_install(args, config)
+        elif tcmd == "update":
+            return cmd_templates_update(args, config)
+        elif tcmd == "remove":
+            return cmd_templates_remove(args, config)
+        else:
+            parser.parse_args(["templates", "--help"])
     elif args.command == "brands":
-        if getattr(args, "brands_cmd", None) == "list":
+        bcmd = getattr(args, "brands_cmd", None)
+        if bcmd == "list":
             return cmd_brands_list(args, config)
-        parser.parse_args(["brands", "--help"])
+        else:
+            parser.parse_args(["brands", "--help"])
     elif args.command == "doctor":
         return cmd_doctor(args, config)
     else:

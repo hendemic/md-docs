@@ -101,6 +101,8 @@ info "Created wrapper at $WRAPPER"
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$DATA_DIR/templates"
 mkdir -p "$DATA_DIR/brands"
+mkdir -p "$DATA_DIR/custom/templates"
+mkdir -p "$DATA_DIR/custom/brands"
 mkdir -p "$CACHE_DIR"
 info "Created config/data/cache directories"
 

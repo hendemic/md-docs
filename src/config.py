@@ -23,6 +23,8 @@ DEFAULTS = {
     "default_brand": None,
     "templates_dir": str(DATA_DIR / "templates"),
     "brands_dir": str(DATA_DIR / "brands"),
+    "custom_templates_dir": str(DATA_DIR / "custom" / "templates"),
+    "custom_brands_dir": str(DATA_DIR / "custom" / "brands"),
     "output_dir": None,
     "latex_engine": "pdflatex",
     "author": None,
@@ -78,4 +80,6 @@ def ensure_dirs() -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     Path(DEFAULTS["templates_dir"]).mkdir(parents=True, exist_ok=True)
     Path(DEFAULTS["brands_dir"]).mkdir(parents=True, exist_ok=True)
+    Path(DEFAULTS["custom_templates_dir"]).mkdir(parents=True, exist_ok=True)
+    Path(DEFAULTS["custom_brands_dir"]).mkdir(parents=True, exist_ok=True)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)

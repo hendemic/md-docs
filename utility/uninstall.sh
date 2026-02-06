@@ -17,6 +17,8 @@ info()  { echo "  $*"; }
 
 CUSTOM_TEMPLATES_DIR=""
 CUSTOM_BRANDS_DIR=""
+CUSTOM_USER_TEMPLATES_DIR=""
+CUSTOM_USER_BRANDS_DIR=""
 GLOBAL_CONFIG="$CONFIG_DIR/config.toml"
 
 if [ -f "$GLOBAL_CONFIG" ]; then
@@ -28,6 +30,14 @@ if [ -f "$GLOBAL_CONFIG" ]; then
     _tmp=$(grep -oP 'brands_dir\s*=\s*"\K[^"]+' "$GLOBAL_CONFIG" 2>/dev/null || true)
     if [ -n "$_tmp" ] && [ "$_tmp" != "$DATA_DIR/brands" ]; then
         CUSTOM_BRANDS_DIR="$_tmp"
+    fi
+    _tmp=$(grep -oP 'custom_templates_dir\s*=\s*"\K[^"]+' "$GLOBAL_CONFIG" 2>/dev/null || true)
+    if [ -n "$_tmp" ] && [ "$_tmp" != "$DATA_DIR/custom/templates" ]; then
+        CUSTOM_USER_TEMPLATES_DIR="$_tmp"
+    fi
+    _tmp=$(grep -oP 'custom_brands_dir\s*=\s*"\K[^"]+' "$GLOBAL_CONFIG" 2>/dev/null || true)
+    if [ -n "$_tmp" ] && [ "$_tmp" != "$DATA_DIR/custom/brands" ]; then
+        CUSTOM_USER_BRANDS_DIR="$_tmp"
     fi
 fi
 
@@ -90,11 +100,14 @@ else
 fi
 
 # Notify about custom directories that were not touched
-if [ -n "$CUSTOM_TEMPLATES_DIR" ] || [ -n "$CUSTOM_BRANDS_DIR" ]; then
+if [ -n "$CUSTOM_TEMPLATES_DIR" ] || [ -n "$CUSTOM_BRANDS_DIR" ] || \
+   [ -n "$CUSTOM_USER_TEMPLATES_DIR" ] || [ -n "$CUSTOM_USER_BRANDS_DIR" ]; then
     echo ""
     echo "NOTE: You have custom directories configured that were not removed:"
-    [ -n "$CUSTOM_TEMPLATES_DIR" ] && info "Templates: $CUSTOM_TEMPLATES_DIR"
-    [ -n "$CUSTOM_BRANDS_DIR" ] && info "Brands:    $CUSTOM_BRANDS_DIR"
+    [ -n "$CUSTOM_TEMPLATES_DIR" ] && info "Templates dir:        $CUSTOM_TEMPLATES_DIR"
+    [ -n "$CUSTOM_BRANDS_DIR" ] && info "Brands dir:           $CUSTOM_BRANDS_DIR"
+    [ -n "$CUSTOM_USER_TEMPLATES_DIR" ] && info "Custom templates dir: $CUSTOM_USER_TEMPLATES_DIR"
+    [ -n "$CUSTOM_USER_BRANDS_DIR" ] && info "Custom brands dir:    $CUSTOM_USER_BRANDS_DIR"
     echo "  You may want to remove these manually."
 fi
 

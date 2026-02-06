@@ -7,10 +7,14 @@
 # Templates define document layout (resume, paper, letter, etc.).
 # Resolves a template + brand pair into paths for the compiler.
 
+import shutil
+import subprocess
 import tomllib
 from pathlib import Path
 
-from config import load_config
+from config import load_config, CACHE_DIR
+
+TEMPLATES_REPO = "https://github.com/hendemic/md-docs-templates.git"
 
 
 def _read_metadata_toml(path: Path) -> dict:
@@ -69,30 +73,41 @@ def _scan_dir(base_dir: Path, metadata_fn) -> list[dict]:
 
 
 def list_templates(config: dict | None = None) -> list[dict]:
-    """Return metadata for all installed templates."""
+    """Return metadata for all installed templates (repo + custom)."""
     config = config or load_config()
-    templates_dir = Path(config["templates_dir"])
-    return _scan_dir(templates_dir, get_template_metadata)
+    seen = {}
+    # Repo templates first, custom templates override on name collision
+    for d in [config["templates_dir"], config["custom_templates_dir"]]:
+        for t in _scan_dir(Path(d), get_template_metadata):
+            seen[t["id"]] = t
+    return sorted(seen.values(), key=lambda m: m["name"])
 
 
 def list_brands(config: dict | None = None) -> list[dict]:
-    """Return metadata for all installed brands."""
+    """Return metadata for all installed brands (repo + custom)."""
     config = config or load_config()
-    brands_dir = Path(config["brands_dir"])
-    return _scan_dir(brands_dir, get_brand_metadata)
+    seen = {}
+    for d in [config["brands_dir"], config["custom_brands_dir"]]:
+        for b in _scan_dir(Path(d), get_brand_metadata):
+            seen[b["id"]] = b
+    return sorted(seen.values(), key=lambda m: m["name"])
 
 
 def resolve_template(name: str, config: dict | None = None) -> Path:
     """
     Resolve a template name to its directory path.
 
-    Raises FileNotFoundError if the template doesn't exist.
+    Checks custom dir first so user templates override repo templates.
+    Raises FileNotFoundError if the template doesn't exist in either location.
     """
     config = config or load_config()
-    template_dir = Path(config["templates_dir"]) / name
-    if not template_dir.is_dir():
-        raise FileNotFoundError(f"Template '{name}' not found in {config['templates_dir']}")
-    return template_dir
+    custom_dir = Path(config["custom_templates_dir"]) / name
+    if custom_dir.is_dir():
+        return custom_dir
+    repo_dir = Path(config["templates_dir"]) / name
+    if repo_dir.is_dir():
+        return repo_dir
+    raise FileNotFoundError(f"Template '{name}' not found")
 
 
 def load_modifiers() -> dict:
@@ -158,10 +173,187 @@ def resolve_brand(name: str, config: dict | None = None) -> Path:
     """
     Resolve a brand name to its directory path.
 
-    Raises FileNotFoundError if the brand doesn't exist.
+    Checks custom dir first so user brands override repo brands.
+    Raises FileNotFoundError if the brand doesn't exist in either location.
     """
     config = config or load_config()
+    custom_dir = Path(config["custom_brands_dir"]) / name
+    if custom_dir.is_dir():
+        return custom_dir
+    repo_dir = Path(config["brands_dir"]) / name
+    if repo_dir.is_dir():
+        return repo_dir
+    raise FileNotFoundError(f"Brand '{name}' not found")
+
+
+# ---------------------------------------------------------------------------
+# Template repo management (install / update / remove)
+# ---------------------------------------------------------------------------
+
+def _repo_cache_dir() -> Path:
+    """Return the cache path for the cloned templates repo."""
+    return CACHE_DIR / "md-docs-templates"
+
+
+def _git(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess:
+    """Run a git command. Raises RuntimeError on failure."""
+    result = subprocess.run(
+        ["git"] + args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        msg = result.stderr.strip() or result.stdout.strip()
+        raise RuntimeError(f"git {' '.join(args)} failed: {msg}")
+    return result
+
+
+def clone_templates_repo() -> Path:
+    """
+    Clone the templates repo into cache.
+
+    Returns the cache path.
+    Raises RuntimeError if the repo is already cloned or git fails.
+    """
+    cache = _repo_cache_dir()
+    if cache.is_dir() and (cache / ".git").is_dir():
+        raise RuntimeError(
+            "Templates already installed. Use 'md-docs templates update' to update."
+        )
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    _git(["clone", TEMPLATES_REPO, str(cache)])
+    return cache
+
+
+def pull_templates_repo() -> Path:
+    """
+    Pull latest changes in the cached templates repo.
+
+    Returns the cache path.
+    Raises RuntimeError if the repo isn't cloned yet or git fails.
+    """
+    cache = _repo_cache_dir()
+    if not (cache / ".git").is_dir():
+        raise RuntimeError(
+            "Templates not installed. Run 'md-docs templates install' first."
+        )
+    _git(["pull"], cwd=cache)
+    return cache
+
+
+def sync_from_cache(config: dict) -> tuple[list[str], list[str]]:
+    """
+    Copy templates and brands from the cached repo into the data dirs.
+
+    Returns (list of template ids copied, list of brand ids copied).
+    Raises RuntimeError if the cache doesn't exist.
+    """
+    cache = _repo_cache_dir()
+    if not cache.is_dir():
+        raise RuntimeError("Templates cache not found. Run 'md-docs templates install' first.")
+
+    templates_src = cache / "templates"
+    brands_src = cache / "brands"
+    templates_dst = Path(config["templates_dir"])
+    brands_dst = Path(config["brands_dir"])
+
+    templates_dst.mkdir(parents=True, exist_ok=True)
+    brands_dst.mkdir(parents=True, exist_ok=True)
+
+    installed_templates = []
+    installed_brands = []
+
+    if templates_src.is_dir():
+        for child in sorted(templates_src.iterdir()):
+            if child.is_dir() and not child.name.startswith("."):
+                dst = templates_dst / child.name
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(child, dst)
+                installed_templates.append(child.name)
+
+    if brands_src.is_dir():
+        for child in sorted(brands_src.iterdir()):
+            if child.is_dir() and not child.name.startswith("."):
+                dst = brands_dst / child.name
+                if dst.exists():
+                    shutil.rmtree(dst)
+                shutil.copytree(child, dst)
+                installed_brands.append(child.name)
+
+    return installed_templates, installed_brands
+
+
+def repo_template_ids() -> set[str]:
+    """
+    Return the set of template IDs that came from the templates repo.
+
+    Reads from the cached clone. Returns empty set if cache doesn't exist.
+    """
+    cache = _repo_cache_dir()
+    templates_src = cache / "templates"
+    if not templates_src.is_dir():
+        return set()
+    return {
+        child.name
+        for child in templates_src.iterdir()
+        if child.is_dir() and not child.name.startswith(".")
+    }
+
+
+def repo_brand_ids() -> set[str]:
+    """
+    Return the set of brand IDs that came from the templates repo.
+
+    Reads from the cached clone. Returns empty set if cache doesn't exist.
+    """
+    cache = _repo_cache_dir()
+    brands_src = cache / "brands"
+    if not brands_src.is_dir():
+        return set()
+    return {
+        child.name
+        for child in brands_src.iterdir()
+        if child.is_dir() and not child.name.startswith(".")
+    }
+
+
+def remove_template(name: str, config: dict) -> bool:
+    """
+    Remove a template from the templates dir.
+
+    Only removes templates that came from the repo (not user-added).
+    Returns True if removed, False if not found.
+    Raises ValueError if the template is user-added.
+    """
+    template_dir = Path(config["templates_dir"]) / name
+    if not template_dir.is_dir():
+        return False
+    if name not in repo_template_ids():
+        raise ValueError(
+            f"Template '{name}' was not installed from the templates repo. "
+            "Remove it manually if needed."
+        )
+    shutil.rmtree(template_dir)
+    return True
+
+
+def remove_brand(name: str, config: dict) -> bool:
+    """
+    Remove a brand from the brands dir.
+
+    Only removes brands that came from the repo (not user-added).
+    Returns True if removed, False if not found.
+    Raises ValueError if the brand is user-added.
+    """
     brand_dir = Path(config["brands_dir"]) / name
     if not brand_dir.is_dir():
-        raise FileNotFoundError(f"Brand '{name}' not found in {config['brands_dir']}")
-    return brand_dir
+        return False
+    if name not in repo_brand_ids():
+        raise ValueError(
+            f"Brand '{name}' was not installed from the templates repo. "
+            "Remove it manually if needed."
+        )
+    shutil.rmtree(brand_dir)
+    return True
