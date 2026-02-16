@@ -516,3 +516,6 @@ fn format_table(rows: &[TableRow<'_>]) -> Vec<String> {
 
     lines
 }
+
+#[cfg(test)]
+mod tests;

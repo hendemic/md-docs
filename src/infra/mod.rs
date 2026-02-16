@@ -8,3 +8,6 @@ pub mod config;
 pub mod fonts;
 pub mod logger;
 pub mod templates;
+
+#[cfg(test)]
+mod tests;

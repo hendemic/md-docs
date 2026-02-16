@@ -742,3 +742,6 @@ impl std::fmt::Display for CliMessage {
         write!(f, "{}", self.formatted())
     }
 }
+
+#[cfg(test)]
+mod tests;

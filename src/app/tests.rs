@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use md_docs::app::converter::markdown_to_typst;
-use md_docs::domain::{ConversionContext, ModifierType, ResolvedModifier};
+use super::converter::markdown_to_typst;
+use crate::domain::{ConversionContext, ModifierType, ResolvedModifier};
 
 /// Build a ConversionContext with no modifiers for simple conversion tests.
 fn empty_context() -> ConversionContext {

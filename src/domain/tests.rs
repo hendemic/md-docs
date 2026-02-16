@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use md_docs::domain::*;
+use super::*;
 
 // =========================================================================
 // Metadata::parse_from_content
@@ -1143,5 +1143,65 @@ default_template = "resume-ats"
         assert!(config.default_brand().is_none());
         assert!(config.raw_templates_dir().is_none());
         assert!(config.author().is_none());
+    }
+}
+
+// =========================================================================
+// CliMessage formatting
+// =========================================================================
+
+mod cli_message_tests {
+    use super::*;
+
+    #[test]
+    fn test_success_formatted_contains_checkmark_and_message() {
+        let msg = CliMessage::Success("done".to_string());
+        let output = msg.formatted();
+        assert!(output.contains("done"));
+        // Checkmark may have ANSI codes; verify output is longer than bare message
+        assert!(output.contains("\u{2713}") || output.len() > "done".len());
+    }
+
+    #[test]
+    fn test_info_formatted_contains_message() {
+        let msg = CliMessage::Info("compiling...".to_string());
+        let output = msg.formatted();
+        assert!(output.contains("compiling..."));
+    }
+
+    #[test]
+    fn test_warning_formatted_contains_prefix_and_message() {
+        let msg = CliMessage::Warning("missing font".to_string());
+        let output = msg.formatted();
+        assert!(output.contains("warning:"));
+        assert!(output.contains("missing font"));
+    }
+
+    #[test]
+    fn test_error_formatted_contains_prefix_and_message() {
+        let msg = CliMessage::Error("file not found".to_string());
+        let output = msg.formatted();
+        assert!(output.contains("error:"));
+        assert!(output.contains("file not found"));
+    }
+
+    #[test]
+    fn test_log_formatted_contains_message() {
+        let msg = CliMessage::Log("debug info".to_string());
+        let output = msg.formatted();
+        assert!(output.contains("debug info"));
+    }
+
+    #[test]
+    fn test_plain_formatted_is_passthrough() {
+        let msg = CliMessage::Plain("raw text".to_string());
+        let output = msg.formatted();
+        assert_eq!(output, "raw text");
+    }
+
+    #[test]
+    fn test_display_impl_matches_formatted() {
+        let msg = CliMessage::Success("test".to_string());
+        assert_eq!(format!("{}", msg), msg.formatted());
     }
 }
