@@ -61,7 +61,7 @@ pub enum Commands {
     /// Show current configuration (layered: defaults <- global <- project <- CLI).
     Config,
 
-    /// Create a `.md-docs.toml` project config in the current directory.
+    /// Initialize global config at ~/.config/md-docs/config.toml.
     Init,
 
     /// Create a new document from a template's starter file.

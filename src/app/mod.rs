@@ -352,23 +352,23 @@ impl AppController {
         Ok(())
     }
 
-    /// Create a `.md-docs.toml` project config file in the current directory.
+    /// Create the global config file at `~/.config/md-docs/config.toml`.
     pub fn init_project(&self) -> anyhow::Result<()> {
-        let config_path = std::env::current_dir()?.join(".md-docs.toml");
+        let config_path = config::ConfigLoader::global_config_path();
 
         if config_path.exists() {
-            anyhow::bail!(".md-docs.toml already exists in the current directory.");
+            anyhow::bail!("Global config already exists at {}", config_path.display());
         }
 
-        let default_content = r#"# md-docs project configuration
-# Uncomment and edit the options you want to set.
+        if let Some(parent) = config_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let default_content = r#"# md-docs global configuration
 
 # default_template = "resume-2-col"
 # default_brand = "generic"
-# output_dir = "./output"
 # author = "Your Name"
-# templates_dir = "/path/to/templates"
-# brands_dir = "/path/to/brands"
 "#;
 
         std::fs::write(&config_path, default_content)?;

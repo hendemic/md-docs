@@ -41,7 +41,7 @@ impl ConfigLoader {
     ///
     /// Uses `$XDG_CONFIG_HOME/md-docs/config.toml`, falling back to
     /// `$HOME/.config/md-docs/config.toml`.
-    fn global_config_path() -> PathBuf {
+    pub fn global_config_path() -> PathBuf {
         dirs::config_dir()
             .unwrap_or_else(|| {
                 PathBuf::from(std::env::var("HOME").unwrap_or_default())
