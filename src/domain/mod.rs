@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use colored::Colorize;
 use serde::Deserialize;
@@ -64,6 +64,47 @@ pub enum MdDocsError {
     /// A template is user-managed and cannot be removed via the repo commands.
     #[error("cannot remove user-managed template: {0}")]
     UserManagedTemplate(String),
+}
+
+// ---------------------------------------------------------------------------
+// Multi-source types
+// ---------------------------------------------------------------------------
+
+/// Default repository URL for templates and brands.
+pub const DEFAULT_REPO_URL: &str = "https://github.com/hendemic/md-docs-templates.git";
+
+/// Default repository name used when no name is specified.
+pub const DEFAULT_REPO_NAME: &str = "default";
+
+/// A named git repository source for templates and brands.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RepoSource {
+    pub name: String,
+    pub url: String,
+}
+
+/// A local directory source for templates and brands.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LocalSource {
+    pub path: PathBuf,
+}
+
+/// Where a template or brand was discovered from.
+#[derive(Debug, Clone)]
+pub enum TemplateSource {
+    /// From a named git repository.
+    Repo(String),
+    /// From a local filesystem directory.
+    Local(PathBuf),
+}
+
+impl fmt::Display for TemplateSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Repo(name) => write!(f, "repo:{}", name),
+            Self::Local(path) => write!(f, "local:{}", path.display()),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -435,6 +476,9 @@ pub struct Template {
 
     /// Parsed metadata from the template's `metadata.toml`.
     pub metadata: TemplateMetadata,
+
+    /// The source this template was discovered from.
+    pub source: TemplateSource,
 }
 
 impl fmt::Display for Template {
@@ -483,6 +527,9 @@ pub struct Brand {
 
     /// Parsed metadata from the brand's `metadata.toml`.
     pub metadata: BrandMetadata,
+
+    /// The source this brand was discovered from.
+    pub source: TemplateSource,
 }
 
 impl fmt::Display for Brand {
@@ -531,44 +578,22 @@ pub struct Config {
     /// Default brand name to use when none is specified.
     pub(crate) default_brand: Option<String>,
 
-    /// Directory containing installed templates.
-    pub(crate) templates_dir: Option<PathBuf>,
-
-    /// Directory containing installed brands.
-    pub(crate) brands_dir: Option<PathBuf>,
-
     /// Default output directory for generated PDFs.
     pub(crate) output_dir: Option<PathBuf>,
 
     /// Default author name injected into metadata when frontmatter doesn't specify one.
     pub(crate) author: Option<String>,
+
+    /// Git repository sources for templates and brands.
+    #[serde(default)]
+    pub(crate) repos: Vec<RepoSource>,
+
+    /// Local directory sources for templates and brands.
+    #[serde(default)]
+    pub(crate) local: Vec<LocalSource>,
 }
 
 impl Config {
-    /// Return the effective templates directory, falling back to the XDG data default.
-    pub fn effective_templates_dir(&self) -> PathBuf {
-        self.templates_dir.clone().unwrap_or_else(|| {
-            dirs::data_dir()
-                .unwrap_or_else(|| {
-                    PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                        .join(".local/share")
-                })
-                .join("md-docs/templates")
-        })
-    }
-
-    /// Return the effective brands directory, falling back to the XDG data default.
-    pub fn effective_brands_dir(&self) -> PathBuf {
-        self.brands_dir.clone().unwrap_or_else(|| {
-            dirs::data_dir()
-                .unwrap_or_else(|| {
-                    PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                        .join(".local/share")
-                })
-                .join("md-docs/brands")
-        })
-    }
-
     /// Return the configured default template name, if any.
     pub fn default_template(&self) -> Option<&str> {
         self.default_template.as_deref()
@@ -580,8 +605,8 @@ impl Config {
     }
 
     /// Return the configured output directory, if any.
-    pub fn output_dir(&self) -> Option<&PathBuf> {
-        self.output_dir.as_ref()
+    pub fn output_dir(&self) -> Option<&Path> {
+        self.output_dir.as_deref()
     }
 
     /// Return the configured default author name, if any.
@@ -589,14 +614,14 @@ impl Config {
         self.author.as_deref()
     }
 
-    /// Return a reference to the raw templates_dir option (for config merging).
-    pub fn raw_templates_dir(&self) -> Option<&PathBuf> {
-        self.templates_dir.as_ref()
+    /// Return the configured git repository sources.
+    pub fn repos(&self) -> &[RepoSource] {
+        &self.repos
     }
 
-    /// Return a reference to the raw brands_dir option (for config merging).
-    pub fn raw_brands_dir(&self) -> Option<&PathBuf> {
-        self.brands_dir.as_ref()
+    /// Return the configured local directory sources.
+    pub fn local(&self) -> &[LocalSource] {
+        &self.local
     }
 }
 

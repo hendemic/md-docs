@@ -55,7 +55,7 @@ impl AppController {
     /// Loads config from: defaults <- global <- project <- (CLI args applied later).
     pub fn new(verbose: bool) -> anyhow::Result<Self> {
         let config = ConfigLoader::load()?;
-        let template_manager = TemplateManager::new(&config);
+        let template_manager = TemplateManager::new(config.clone());
         let logger = FileLogger::new();
 
         // Warn if md-docs hasn't been initialized yet
@@ -194,6 +194,7 @@ impl AppController {
             id: &t.id,
             name: &t.metadata.name,
             description: t.metadata.description.as_deref(),
+            source: String::new(),
         }).collect();
         let items = format_selector_items(&rows);
         let selection = dialoguer::Select::new()
@@ -236,6 +237,7 @@ impl AppController {
             id: &b.id,
             name: &b.metadata.name,
             description: b.metadata.description.as_deref(),
+            source: String::new(),
         }).collect();
         let items = format_selector_items(&rows);
         let selection = dialoguer::Select::new()
@@ -287,6 +289,7 @@ impl AppController {
                 id: &t.id,
                 name: &t.metadata.name,
                 description: t.metadata.description.as_deref(),
+                source: t.source.to_string(),
             })
             .collect();
 
@@ -297,30 +300,32 @@ impl AppController {
         Ok(())
     }
 
-    /// Install templates from a git repository URL.
+    /// Install template repos from config.
     ///
-    /// Defaults to the official md-docs-templates repo if no URL is provided.
-    pub fn install_templates(&self, repo_url: Option<String>) -> anyhow::Result<()> {
-        const DEFAULT_REPO: &str = "https://github.com/hendemic/md-docs-templates.git";
-        let url = repo_url.as_deref().unwrap_or(DEFAULT_REPO);
-        self.emit(CliMessage::Info(format!("Installing templates from {}...", url)));
-        self.template_manager.install_repo(url)?;
-        self.emit(CliMessage::Success("Templates installed successfully.".to_string()));
+    /// If a name is given, installs only that repo. Otherwise installs all configured repos.
+    pub fn install_templates(&self, name: Option<String>) -> anyhow::Result<()> {
+        if self.config.repos().is_empty() {
+            anyhow::bail!("No repos configured. Add [[repos]] to your config.");
+        }
+        match &name {
+            Some(n) => self.emit(CliMessage::Info(format!("Installing repo '{}'...", n))),
+            None => self.emit(CliMessage::Info("Installing all configured repos...".to_string())),
+        }
+        self.template_manager.install_repo(name.as_deref())?;
+        self.emit(CliMessage::Success("Repos installed successfully.".to_string()));
         Ok(())
     }
 
-    /// Update installed templates (git pull).
+    /// Update installed template repos (git pull).
+    ///
+    /// If a name is given, updates only that repo. Otherwise updates all.
     pub fn update_templates(&self, name: Option<String>) -> anyhow::Result<()> {
-        self.emit(CliMessage::Info("Updating templates...".to_string()));
+        match &name {
+            Some(n) => self.emit(CliMessage::Info(format!("Updating repo '{}'...", n))),
+            None => self.emit(CliMessage::Info("Updating all configured repos...".to_string())),
+        }
         self.template_manager.update_repo(name.as_deref())?;
-        self.emit(CliMessage::Success("Templates updated successfully.".to_string()));
-        Ok(())
-    }
-
-    /// Remove an installed template by name.
-    pub fn remove_template(&self, name: &str) -> anyhow::Result<()> {
-        self.template_manager.remove_template(name)?;
-        self.emit(CliMessage::Success(format!("Template '{}' removed.", name)));
+        self.emit(CliMessage::Success("Repos updated successfully.".to_string()));
         Ok(())
     }
 
@@ -342,6 +347,7 @@ impl AppController {
                 id: &b.id,
                 name: &b.metadata.name,
                 description: b.metadata.description.as_deref(),
+                source: b.source.to_string(),
             })
             .collect();
 
@@ -359,16 +365,7 @@ impl AppController {
     /// Display the current resolved configuration.
     pub fn show_config(&self) -> anyhow::Result<()> {
         self.emit(CliMessage::Info("Current configuration:".to_string()));
-        self.emit(CliMessage::Plain(format!(
-            "  {}: {}",
-            "Templates dir".bold(),
-            self.config.effective_templates_dir().display().to_string().dimmed()
-        )));
-        self.emit(CliMessage::Plain(format!(
-            "  {}: {}",
-            "Brands dir".bold(),
-            self.config.effective_brands_dir().display().to_string().dimmed()
-        )));
+
         if let Some(t) = self.config.default_template() {
             self.emit(CliMessage::Plain(format!(
                 "  {}: {}", "Default template".bold(), t.dimmed()
@@ -389,6 +386,34 @@ impl AppController {
                 "  {}: {}", "Author".bold(), a.dimmed()
             )));
         }
+
+        if !self.config.repos().is_empty() {
+            self.emit(CliMessage::Plain(format!("\n  {}:", "Repos".bold())));
+            let repos_base = dirs::data_dir()
+                .unwrap_or_else(|| {
+                    PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                        .join(".local/share")
+                })
+                .join("md-docs/repos");
+            for repo in self.config.repos() {
+                let installed = repos_base.join(&repo.name).join(".git").is_dir();
+                let status = if installed { "installed" } else { "not installed" };
+                self.emit(CliMessage::Plain(format!(
+                    "    {} -- {} ({})",
+                    repo.name.bold(), repo.url.dimmed(), status.dimmed()
+                )));
+            }
+        }
+
+        if !self.config.local().is_empty() {
+            self.emit(CliMessage::Plain(format!("\n  {}:", "Local sources".bold())));
+            for local in self.config.local() {
+                self.emit(CliMessage::Plain(format!(
+                    "    {}", local.path.display().to_string().dimmed()
+                )));
+            }
+        }
+
         Ok(())
     }
 
@@ -446,6 +471,9 @@ impl AppController {
     }
 
     /// Create the global config file at `~/.config/md-docs/config.toml`.
+    ///
+    /// Writes a default config with the official `[[repos]]` entry, then
+    /// reloads the config and installs all configured repos.
     pub fn init_project(&self) -> anyhow::Result<()> {
         let config_path = ConfigLoader::global_config_path();
 
@@ -457,18 +485,28 @@ impl AppController {
             std::fs::create_dir_all(parent)?;
         }
 
-        let default_content = r#"# md-docs global configuration
+        let default_content = format!(
+            r#"# md-docs global configuration
 
 # default_template = "resume-2-col"
 # default_brand = "generic"
 # author = "Your Name"
-"#;
 
-        std::fs::write(&config_path, default_content)?;
+[[repos]]
+name = "{}"
+url = "{}"
+"#,
+            crate::domain::DEFAULT_REPO_NAME, crate::domain::DEFAULT_REPO_URL
+        );
+
+        std::fs::write(&config_path, &default_content)?;
         self.emit(CliMessage::Success(format!("Created {}", config_path.display())));
 
-        // Install default templates and brands
-        self.install_templates(None)?;
+        // Reload config to pick up new [[repos]], then install
+        let fresh_config = ConfigLoader::load()?;
+        let fresh_manager = TemplateManager::new(fresh_config);
+        fresh_manager.install_repo(None)?;
+        self.emit(CliMessage::Success("Default templates installed.".to_string()));
 
         Ok(())
     }
@@ -483,6 +521,7 @@ struct TableRow<'a> {
     id: &'a str,
     name: &'a str,
     description: Option<&'a str>,
+    source: String,
 }
 
 /// Minimum padding (in spaces) between the widest value and the next column.
@@ -497,6 +536,7 @@ fn format_table(rows: &[TableRow<'_>]) -> Vec<String> {
     let header_id = "ID";
     let header_name = "Name";
     let header_desc = "Description";
+    let header_source = "Source";
 
     // Compute max width for each column (considering both header and data).
     let id_width = rows.iter().map(|r| r.id.len()).max().unwrap_or(0).max(header_id.len());
@@ -506,9 +546,16 @@ fn format_table(rows: &[TableRow<'_>]) -> Vec<String> {
         .max()
         .unwrap_or(0)
         .max(header_name.len());
+    let desc_width = rows
+        .iter()
+        .map(|r| r.description.unwrap_or("").len())
+        .max()
+        .unwrap_or(0)
+        .max(header_desc.len());
 
     let id_col = id_width + TABLE_COL_PAD;
     let name_col = name_width + TABLE_COL_PAD;
+    let desc_col = desc_width + TABLE_COL_PAD;
 
     let mut lines = Vec::with_capacity(rows.len() + 1);
 
@@ -523,16 +570,22 @@ fn format_table(rows: &[TableRow<'_>]) -> Vec<String> {
         header_name.bold(),
         " ".repeat(name_col.saturating_sub(header_name.len()))
     );
-    lines.push(format!("  {}{}{}", hdr_name, hdr_id, header_desc.bold()));
+    let hdr_desc = format!(
+        "{}{}",
+        header_desc.bold(),
+        " ".repeat(desc_col.saturating_sub(header_desc.len()))
+    );
+    lines.push(format!("  {}{}{}{}", hdr_name, hdr_id, hdr_desc, header_source.bold()));
 
     // Data rows.
     for row in rows {
         let desc = row.description.unwrap_or("");
-        // Pad id and name manually so ANSI escape codes from bold/dimmed
+        // Pad id, name, and desc manually so ANSI escape codes from bold/dimmed
         // don't interfere with the width formatting.
         let name_padded = format!("{}{}", row.name.cyan(), " ".repeat(name_col.saturating_sub(row.name.len())));
         let id_padded = format!("{}{}", row.id.bold(), " ".repeat(id_col.saturating_sub(row.id.len())));
-        lines.push(format!("  {}{}{}", name_padded, id_padded, desc.dimmed()));
+        let desc_padded = format!("{}{}", desc.dimmed(), " ".repeat(desc_col.saturating_sub(desc.len())));
+        lines.push(format!("  {}{}{}{}", name_padded, id_padded, desc_padded, (&row.source).dimmed()));
     }
 
     lines

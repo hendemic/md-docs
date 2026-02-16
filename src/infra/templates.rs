@@ -1,28 +1,18 @@
 //! Template and brand discovery, metadata parsing, and repository management.
 //!
-//! Scans configured directories for templates and brands, reads their metadata,
-//! loads the modifier registry, and handles git-based install/update/remove operations.
+//! Scans all configured sources (local directories and git repos) for templates
+//! and brands, reads their metadata, loads the modifier registry, and handles
+//! git-based install/update operations.
 //!
-//! # Directory structure expected
-//! ```text
-//! templates_dir/
-//!   resume-2-col/
-//!     template.typ
-//!     metadata.toml
-//!   resume-ats/
-//!     template.typ
-//!     metadata.toml
-//!
-//! brands_dir/
-//!   generic/
-//!     brand.typ
-//!     metadata.toml
-//! ```
+//! Sources are scanned in precedence order: local directories first, then repos.
+//! When the same template/brand ID appears in multiple sources, the first wins.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::domain::{
-    Brand, BrandMetadata, Config, MdDocsError, ModifierRegistry, Template, TemplateMetadata,
+    Brand, BrandMetadata, Config, MdDocsError, ModifierRegistry, RepoSource, Template,
+    TemplateMetadata, TemplateSource,
 };
 
 /// The embedded modifiers.toml file, included at compile time.
@@ -48,170 +38,244 @@ pub fn load_modifiers() -> anyhow::Result<ModifierRegistry> {
 // TemplateManager
 // ---------------------------------------------------------------------------
 
-/// Manages template and brand discovery, metadata loading, and repository operations.
-pub struct TemplateManager {
-    /// Directory containing installed templates.
+/// A resolved source directory with its origin and paths for templates and brands.
+struct SourceDir {
+    source: TemplateSource,
     templates_dir: PathBuf,
-
-    /// Directory containing installed brands.
     brands_dir: PathBuf,
+}
+
+/// Manages template and brand discovery, metadata loading, and repository operations.
+///
+/// Scans multiple sources (local directories and cloned git repos) in precedence
+/// order. Local sources take priority over repo sources; within each category,
+/// sources are checked in config order.
+#[derive(Debug, Clone)]
+pub struct TemplateManager {
+    config: Config,
 }
 
 impl TemplateManager {
     /// Create a new TemplateManager from the resolved config.
-    pub fn new(config: &Config) -> Self {
-        Self {
-            templates_dir: config.effective_templates_dir(),
-            brands_dir: config.effective_brands_dir(),
+    pub fn new(config: Config) -> Self {
+        Self { config }
+    }
+
+    // -----------------------------------------------------------------------
+    // Source directory resolution
+    // -----------------------------------------------------------------------
+
+    /// Build ordered list of source directories. Local first (higher precedence), then repos.
+    fn source_directories(&self) -> Vec<SourceDir> {
+        let mut dirs = Vec::new();
+
+        for local in self.config.local() {
+            let base = &local.path;
+            dirs.push(SourceDir {
+                source: TemplateSource::Local(base.clone()),
+                templates_dir: base.join("templates"),
+                brands_dir: base.join("brands"),
+            });
         }
+
+        for repo in self.config.repos() {
+            let base = Self::repo_clone_path(&repo.name);
+            dirs.push(SourceDir {
+                source: TemplateSource::Repo(repo.name.clone()),
+                templates_dir: base.join("templates"),
+                brands_dir: base.join("brands"),
+            });
+        }
+
+        dirs
+    }
+
+    // -----------------------------------------------------------------------
+    // Repository path helpers
+    // -----------------------------------------------------------------------
+
+    /// Return the base directory for cloned repositories.
+    /// `~/.local/share/md-docs/repos/`
+    fn repos_base_dir() -> PathBuf {
+        dirs::data_dir()
+            .unwrap_or_else(|| {
+                PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                    .join(".local/share")
+            })
+            .join("md-docs/repos")
+    }
+
+    /// Return the clone path for a named repo.
+    fn repo_clone_path(name: &str) -> PathBuf {
+        Self::repos_base_dir().join(name)
     }
 
     // -----------------------------------------------------------------------
     // Discovery
     // -----------------------------------------------------------------------
 
-    /// Discover all installed templates by scanning the templates directory.
+    /// Discover all templates across all configured sources.
     ///
-    /// Each subdirectory with a `template.typ` file is considered a template.
+    /// Scans local directories first, then repos. When the same template ID
+    /// appears in multiple sources, the first occurrence wins (higher precedence).
     /// Returns templates sorted by name.
     pub fn discover_templates(&self) -> anyhow::Result<Vec<Template>> {
         let mut templates = Vec::new();
+        let mut seen_ids: HashSet<String> = HashSet::new();
 
-        if !self.templates_dir.is_dir() {
-            return Ok(templates);
-        }
-
-        for entry in std::fs::read_dir(&self.templates_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-
-            if !path.is_dir() {
+        for source in self.source_directories() {
+            if !source.templates_dir.is_dir() {
                 continue;
             }
 
-            // Skip hidden directories
-            if path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .map_or(true, |n| n.starts_with('.'))
-            {
-                continue;
+            for entry in std::fs::read_dir(&source.templates_dir)? {
+                let entry = entry?;
+                let path = entry.path();
+
+                if !path.is_dir() {
+                    continue;
+                }
+
+                // Skip hidden directories
+                if path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map_or(true, |n| n.starts_with('.'))
+                {
+                    continue;
+                }
+
+                // Must contain template.typ
+                if !path.join("template.typ").is_file() {
+                    continue;
+                }
+
+                let id = match path.file_name().and_then(|n| n.to_str()) {
+                    Some(name) => name.to_string(),
+                    None => continue,
+                };
+
+                // First-wins: skip duplicates
+                if seen_ids.contains(&id) {
+                    continue;
+                }
+                seen_ids.insert(id.clone());
+
+                let metadata = Self::read_template_metadata(&path)?;
+
+                templates.push(Template {
+                    id,
+                    path,
+                    metadata,
+                    source: source.source.clone(),
+                });
             }
-
-            // Must contain template.typ
-            if !path.join("template.typ").is_file() {
-                continue;
-            }
-
-            let id = path
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .to_string();
-
-            let metadata = Self::read_template_metadata(&path)?;
-
-            templates.push(Template {
-                id,
-                path,
-                metadata,
-            });
         }
 
         templates.sort_by(|a, b| a.metadata.name.cmp(&b.metadata.name));
         Ok(templates)
     }
 
-    /// Discover all installed brands by scanning the brands directory.
+    /// Discover all brands across all configured sources.
     ///
-    /// Each subdirectory with a `brand.typ` file is considered a brand.
+    /// Scans local directories first, then repos. When the same brand ID
+    /// appears in multiple sources, the first occurrence wins (higher precedence).
     /// Returns brands sorted by name.
     pub fn discover_brands(&self) -> anyhow::Result<Vec<Brand>> {
         let mut brands = Vec::new();
+        let mut seen_ids: HashSet<String> = HashSet::new();
 
-        if !self.brands_dir.is_dir() {
-            return Ok(brands);
-        }
-
-        for entry in std::fs::read_dir(&self.brands_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-
-            if !path.is_dir() {
+        for source in self.source_directories() {
+            if !source.brands_dir.is_dir() {
                 continue;
             }
 
-            // Skip hidden directories
-            if path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .map_or(true, |n| n.starts_with('.'))
-            {
-                continue;
+            for entry in std::fs::read_dir(&source.brands_dir)? {
+                let entry = entry?;
+                let path = entry.path();
+
+                if !path.is_dir() {
+                    continue;
+                }
+
+                // Skip hidden directories
+                if path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map_or(true, |n| n.starts_with('.'))
+                {
+                    continue;
+                }
+
+                // Must contain brand.typ
+                if !path.join("brand.typ").is_file() {
+                    continue;
+                }
+
+                let id = match path.file_name().and_then(|n| n.to_str()) {
+                    Some(name) => name.to_string(),
+                    None => continue,
+                };
+
+                // First-wins: skip duplicates
+                if seen_ids.contains(&id) {
+                    continue;
+                }
+                seen_ids.insert(id.clone());
+
+                let metadata = Self::read_brand_metadata(&path)?;
+
+                brands.push(Brand {
+                    id,
+                    path,
+                    metadata,
+                    source: source.source.clone(),
+                });
             }
-
-            // Must contain brand.typ
-            if !path.join("brand.typ").is_file() {
-                continue;
-            }
-
-            let id = path
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .to_string();
-
-            let metadata = Self::read_brand_metadata(&path)?;
-
-            brands.push(Brand {
-                id,
-                path,
-                metadata,
-            });
         }
 
         brands.sort_by(|a, b| a.metadata.name.cmp(&b.metadata.name));
         Ok(brands)
     }
 
-    /// Resolve a template by name.
+    /// Resolve a template by name, searching across sources in precedence order.
     ///
-    /// Looks up the template in the templates directory.
-    /// Returns an error if the template is not found.
+    /// Returns the first matching template found. Local sources are checked
+    /// before repo sources.
     pub fn resolve_template(&self, name: &str) -> anyhow::Result<Template> {
-        let template_dir = self.templates_dir.join(name);
-
-        if !template_dir.is_dir() || !template_dir.join("template.typ").is_file() {
-            return Err(MdDocsError::TemplateNotFound(name.to_string()).into());
+        for source in self.source_directories() {
+            let template_dir = source.templates_dir.join(name);
+            if template_dir.is_dir() && template_dir.join("template.typ").is_file() {
+                let metadata = Self::read_template_metadata(&template_dir)?;
+                return Ok(Template {
+                    id: name.to_string(),
+                    path: template_dir,
+                    metadata,
+                    source: source.source.clone(),
+                });
+            }
         }
-
-        let metadata = Self::read_template_metadata(&template_dir)?;
-
-        Ok(Template {
-            id: name.to_string(),
-            path: template_dir,
-            metadata,
-        })
+        Err(MdDocsError::TemplateNotFound(name.to_string()).into())
     }
 
-    /// Resolve a brand by name.
+    /// Resolve a brand by name, searching across sources in precedence order.
     ///
-    /// Looks up the brand in the brands directory.
-    /// Returns an error if the brand is not found.
+    /// Returns the first matching brand found. Local sources are checked
+    /// before repo sources.
     pub fn resolve_brand(&self, name: &str) -> anyhow::Result<Brand> {
-        let brand_dir = self.brands_dir.join(name);
-
-        if !brand_dir.is_dir() || !brand_dir.join("brand.typ").is_file() {
-            return Err(MdDocsError::BrandNotFound(name.to_string()).into());
+        for source in self.source_directories() {
+            let brand_dir = source.brands_dir.join(name);
+            if brand_dir.is_dir() && brand_dir.join("brand.typ").is_file() {
+                let metadata = Self::read_brand_metadata(&brand_dir)?;
+                return Ok(Brand {
+                    id: name.to_string(),
+                    path: brand_dir,
+                    metadata,
+                    source: source.source.clone(),
+                });
+            }
         }
-
-        let metadata = Self::read_brand_metadata(&brand_dir)?;
-
-        Ok(Brand {
-            id: name.to_string(),
-            path: brand_dir,
-            metadata,
-        })
+        Err(MdDocsError::BrandNotFound(name.to_string()).into())
     }
 
     // -----------------------------------------------------------------------
@@ -300,212 +364,108 @@ impl TemplateManager {
     // Repository management
     // -----------------------------------------------------------------------
 
-    /// Install templates from a git repository.
+    /// Install template repositories by cloning from their configured URLs.
     ///
-    /// Clones the repository to a cache directory, then copies templates
-    /// and brands into the configured data directories.
-    pub fn install_repo(&self, repo_url: &str) -> anyhow::Result<()> {
-        let cache_dir = Self::cache_dir();
+    /// If `name` is provided, installs only the named repo. Otherwise installs
+    /// all repos from the config. Skips repos that are already cloned.
+    pub fn install_repo(&self, name: Option<&str>) -> anyhow::Result<()> {
+        let repos_to_install: Vec<&RepoSource> = match name {
+            Some(n) => {
+                let repo = self
+                    .config
+                    .repos()
+                    .iter()
+                    .find(|r| r.name == n)
+                    .ok_or_else(|| {
+                        MdDocsError::RepoOperationFailed(format!(
+                            "repo '{}' not found in config",
+                            n
+                        ))
+                    })?;
+                vec![repo]
+            }
+            None => self.config.repos().iter().collect(),
+        };
 
-        if cache_dir.is_dir() && cache_dir.join(".git").is_dir() {
-            anyhow::bail!(
-                "Templates already installed. Use 'md-docs templates update' to update."
-            );
-        }
+        for repo in repos_to_install {
+            let clone_path = Self::repo_clone_path(&repo.name);
 
-        // Ensure parent directory exists
-        if let Some(parent) = cache_dir.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+            if clone_path.join(".git").is_dir() {
+                continue; // Already installed
+            }
 
-        // Clone the repository
-        let status = std::process::Command::new("git")
-            .args(["clone", repo_url, &cache_dir.to_string_lossy()])
-            .status()
-            .map_err(|e| {
-                MdDocsError::RepoOperationFailed(format!("failed to run git: {}", e))
-            })?;
+            if let Some(parent) = clone_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
 
-        if !status.success() {
-            return Err(
-                MdDocsError::RepoOperationFailed("git clone failed".to_string()).into(),
-            );
-        }
+            let status = std::process::Command::new("git")
+                .args(["clone", &repo.url, &clone_path.to_string_lossy()])
+                .status()
+                .map_err(|e| {
+                    MdDocsError::RepoOperationFailed(format!("failed to run git: {}", e))
+                })?;
 
-        // Sync templates and brands from cache to data directories
-        Self::sync_from_cache(&cache_dir)?;
-
-        Ok(())
-    }
-
-    /// Update installed templates by pulling the latest from the cached repository.
-    ///
-    /// If `name` is Some, only updates the specified template.
-    /// Otherwise updates all templates from the cached repo.
-    pub fn update_repo(&self, _name: Option<&str>) -> anyhow::Result<()> {
-        let cache_dir = Self::cache_dir();
-
-        if !cache_dir.join(".git").is_dir() {
-            anyhow::bail!(
-                "Templates not installed. Run 'md-docs templates install' first."
-            );
-        }
-
-        // Pull latest changes
-        let status = std::process::Command::new("git")
-            .args(["pull"])
-            .current_dir(&cache_dir)
-            .status()
-            .map_err(|e| {
-                MdDocsError::RepoOperationFailed(format!("failed to run git: {}", e))
-            })?;
-
-        if !status.success() {
-            return Err(
-                MdDocsError::RepoOperationFailed("git pull failed".to_string()).into(),
-            );
-        }
-
-        // Re-sync from cache
-        Self::sync_from_cache(&cache_dir)?;
-
-        Ok(())
-    }
-
-    /// Remove an installed template by name.
-    ///
-    /// Removes from the default install directory, not the config-resolved
-    /// directory. Only removes templates that were installed from a repository.
-    pub fn remove_template(&self, name: &str) -> anyhow::Result<()> {
-        let install_dir = Self::default_templates_dir();
-        let template_dir = install_dir.join(name);
-
-        if !template_dir.is_dir() {
-            return Err(MdDocsError::TemplateNotFound(name.to_string()).into());
-        }
-
-        // Check if template exists in the cached repo (i.e., is repo-managed)
-        let cache_dir = Self::cache_dir();
-        let cached_template = cache_dir.join("templates").join(name);
-        if !cached_template.is_dir() {
-            return Err(MdDocsError::UserManagedTemplate(name.to_string()).into());
-        }
-
-        std::fs::remove_dir_all(&template_dir)?;
-
-        Ok(())
-    }
-
-    /// Return the cache directory path for a cloned template repository.
-    fn cache_dir() -> PathBuf {
-        dirs::cache_dir()
-            .unwrap_or_else(|| {
-                PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".cache")
-            })
-            .join("md-docs/repos")
-    }
-
-    /// Return the default install directory for templates.
-    ///
-    /// Always uses the XDG data directory, ignoring config overrides.
-    /// This ensures `install` and `remove` always target the standard
-    /// location, even when a dev config overrides `templates_dir`.
-    fn default_templates_dir() -> PathBuf {
-        dirs::data_dir()
-            .unwrap_or_else(|| {
-                PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                    .join(".local/share")
-            })
-            .join("md-docs/templates")
-    }
-
-    /// Return the default install directory for brands.
-    fn default_brands_dir() -> PathBuf {
-        dirs::data_dir()
-            .unwrap_or_else(|| {
-                PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                    .join(".local/share")
-            })
-            .join("md-docs/brands")
-    }
-
-    /// Sync templates and brands from the cached repository to the
-    /// default install directories.
-    ///
-    /// Always installs to the XDG data paths, regardless of config
-    /// overrides, so that dev environments don't interfere with installs.
-    fn sync_from_cache(cache_dir: &Path) -> anyhow::Result<()> {
-        let templates_dst = Self::default_templates_dir();
-        let brands_dst = Self::default_brands_dir();
-        let templates_src = cache_dir.join("templates");
-        let brands_src = cache_dir.join("brands");
-
-        // Ensure destination directories exist
-        std::fs::create_dir_all(&templates_dst)?;
-        std::fs::create_dir_all(&brands_dst)?;
-
-        // Copy templates
-        if templates_src.is_dir() {
-            for entry in std::fs::read_dir(&templates_src)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_dir()
-                    && !path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .map_or(true, |n| n.starts_with('.'))
-                {
-                    let dst = templates_dst.join(path.file_name().unwrap());
-                    if dst.exists() {
-                        std::fs::remove_dir_all(&dst)?;
-                    }
-                    copy_dir_all(&path, &dst)?;
-                }
+            if !status.success() {
+                return Err(MdDocsError::RepoOperationFailed(format!(
+                    "git clone failed for repo '{}'",
+                    repo.name
+                ))
+                .into());
             }
         }
-
-        // Copy brands
-        if brands_src.is_dir() {
-            for entry in std::fs::read_dir(&brands_src)? {
-                let entry = entry?;
-                let path = entry.path();
-                if path.is_dir()
-                    && !path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .map_or(true, |n| n.starts_with('.'))
-                {
-                    let dst = brands_dst.join(path.file_name().unwrap());
-                    if dst.exists() {
-                        std::fs::remove_dir_all(&dst)?;
-                    }
-                    copy_dir_all(&path, &dst)?;
-                }
-            }
-        }
-
         Ok(())
     }
-}
 
-/// Recursively copy a directory and all its contents to a new location.
-///
-/// Rust's standard library does not provide a recursive directory copy,
-/// so we implement it manually.
-fn copy_dir_all(src: &Path, dst: &Path) -> anyhow::Result<()> {
-    std::fs::create_dir_all(dst)?;
+    /// Update installed template repositories by pulling latest changes.
+    ///
+    /// If `name` is provided, updates only the named repo. Otherwise updates
+    /// all repos from the config. Returns an error if a repo is not installed.
+    pub fn update_repo(&self, name: Option<&str>) -> anyhow::Result<()> {
+        let repos_to_update: Vec<&RepoSource> = match name {
+            Some(n) => {
+                let repo = self
+                    .config
+                    .repos()
+                    .iter()
+                    .find(|r| r.name == n)
+                    .ok_or_else(|| {
+                        MdDocsError::RepoOperationFailed(format!(
+                            "repo '{}' not found in config",
+                            n
+                        ))
+                    })?;
+                vec![repo]
+            }
+            None => self.config.repos().iter().collect(),
+        };
 
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
+        for repo in repos_to_update {
+            let clone_path = Self::repo_clone_path(&repo.name);
 
-        if src_path.is_dir() {
-            copy_dir_all(&src_path, &dst_path)?;
-        } else {
-            std::fs::copy(&src_path, &dst_path)?;
+            if !clone_path.join(".git").is_dir() {
+                return Err(MdDocsError::RepoOperationFailed(format!(
+                    "repo '{}' not installed. Run 'md-docs templates install' first.",
+                    repo.name
+                ))
+                .into());
+            }
+
+            let status = std::process::Command::new("git")
+                .args(["pull"])
+                .current_dir(&clone_path)
+                .status()
+                .map_err(|e| {
+                    MdDocsError::RepoOperationFailed(format!("failed to run git: {}", e))
+                })?;
+
+            if !status.success() {
+                return Err(MdDocsError::RepoOperationFailed(format!(
+                    "git pull failed for repo '{}'",
+                    repo.name
+                ))
+                .into());
+            }
         }
+        Ok(())
     }
-
-    Ok(())
 }

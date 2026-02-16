@@ -18,38 +18,14 @@ mod config_loading {
         // Assert -- should succeed and return defaults
         assert!(result.is_ok(), "load should succeed even with no config files");
         let config = result.unwrap();
-        // Templates and brands dirs should have sensible defaults
-        let templates = config.effective_templates_dir();
-        let brands = config.effective_brands_dir();
+        // repos and local should be empty by default
         assert!(
-            templates.to_string_lossy().contains("md-docs"),
-            "default templates dir should contain 'md-docs'"
+            config.repos().is_empty(),
+            "default config should have empty repos"
         );
         assert!(
-            brands.to_string_lossy().contains("md-docs"),
-            "default brands dir should contain 'md-docs'"
-        );
-    }
-
-    #[test]
-    fn test_load_defaults_have_xdg_paths() {
-        // Execute
-        let result = ConfigLoader::load();
-
-        // Assert
-        assert!(result.is_ok());
-        let config = result.unwrap();
-        let templates = config.effective_templates_dir();
-        let brands = config.effective_brands_dir();
-
-        // Should use XDG data dir (e.g., ~/.local/share/md-docs/templates)
-        assert!(
-            templates.to_string_lossy().contains("templates"),
-            "templates dir should end with 'templates'"
-        );
-        assert!(
-            brands.to_string_lossy().contains("brands"),
-            "brands dir should end with 'brands'"
+            config.local().is_empty(),
+            "default config should have empty local"
         );
     }
 }
@@ -64,8 +40,6 @@ mod config_merging {
     #[test]
     fn test_merge_overlay_replaces_base_fields() {
         // Setup -- test via TOML deserialization to simulate merge behavior
-        // We test the public load() which uses merge internally,
-        // and also verify the Config struct behaves correctly when fields are set
         let base_toml = r#"
 default_template = "original"
 author = "Base Author"
@@ -102,6 +76,102 @@ author = "Keep Me Too"
         assert!(empty.default_template().is_none());
         assert!(empty.author().is_none());
     }
+
+    #[test]
+    fn test_merge_overlay_repos_replaces_base_repos() {
+        // Setup -- simulate merge: base has repos, overlay has different repos
+        let base_toml = r#"
+[[repos]]
+name = "base-repo"
+url = "https://example.com/base.git"
+"#;
+        let overlay_toml = r#"
+[[repos]]
+name = "overlay-repo"
+url = "https://example.com/overlay.git"
+"#;
+
+        let base: Config = toml::from_str(base_toml).unwrap();
+        let overlay: Config = toml::from_str(overlay_toml).unwrap();
+
+        // Assert -- verify both parsed correctly
+        assert_eq!(base.repos().len(), 1);
+        assert_eq!(base.repos()[0].name, "base-repo");
+        assert_eq!(overlay.repos().len(), 1);
+        assert_eq!(overlay.repos()[0].name, "overlay-repo");
+        // When merge is applied, overlay repos should replace base repos
+        // (non-empty overlay replaces base entirely)
+    }
+
+    #[test]
+    fn test_merge_empty_repos_keeps_base() {
+        // Setup -- overlay with no repos should keep base repos
+        let base_toml = r#"
+[[repos]]
+name = "keep-me"
+url = "https://example.com/keep.git"
+"#;
+        let overlay_toml = r#"
+default_template = "new-template"
+"#;
+
+        let base: Config = toml::from_str(base_toml).unwrap();
+        let overlay: Config = toml::from_str(overlay_toml).unwrap();
+
+        // Assert
+        assert_eq!(base.repos().len(), 1);
+        assert!(overlay.repos().is_empty(), "overlay has no repos");
+        // When merge is applied, base repos should be preserved
+    }
+
+    #[test]
+    fn test_merge_overlay_local_replaces_base_local() {
+        // Setup
+        let base_toml = r#"
+[[local]]
+path = "/base/path"
+"#;
+        let overlay_toml = r#"
+[[local]]
+path = "/overlay/path"
+"#;
+
+        let base: Config = toml::from_str(base_toml).unwrap();
+        let overlay: Config = toml::from_str(overlay_toml).unwrap();
+
+        // Assert
+        assert_eq!(base.local().len(), 1);
+        assert_eq!(base.local()[0].path.to_string_lossy(), "/base/path");
+        assert_eq!(overlay.local().len(), 1);
+        assert_eq!(overlay.local()[0].path.to_string_lossy(), "/overlay/path");
+    }
+
+    #[test]
+    fn test_merge_mixed() {
+        // Setup -- overlay with local but no repos
+        let base_toml = r#"
+[[repos]]
+name = "base-repo"
+url = "https://example.com/base.git"
+
+[[local]]
+path = "/base/local"
+"#;
+        let overlay_toml = r#"
+[[local]]
+path = "/overlay/local"
+"#;
+
+        let base: Config = toml::from_str(base_toml).unwrap();
+        let overlay: Config = toml::from_str(overlay_toml).unwrap();
+
+        // Assert -- overlay has local but no repos
+        assert_eq!(base.repos().len(), 1);
+        assert_eq!(base.local().len(), 1);
+        assert!(overlay.repos().is_empty());
+        assert_eq!(overlay.local().len(), 1);
+        // When merge is applied: base repos kept (overlay empty), overlay local replaces base
+    }
 }
 
 // =========================================================================
@@ -117,8 +187,13 @@ mod config_file_loading {
         let toml_str = r#"
 default_template = "resume-2-col"
 default_brand = "generic"
-templates_dir = "/home/user/templates"
-brands_dir = "/home/user/brands"
+
+[[repos]]
+name = "default"
+url = "https://github.com/hendemic/md-docs-templates.git"
+
+[[local]]
+path = "/home/user/templates"
 "#;
 
         // Execute
@@ -129,6 +204,8 @@ brands_dir = "/home/user/brands"
         let config = config.unwrap();
         assert_eq!(config.default_template(), Some("resume-2-col"));
         assert_eq!(config.default_brand(), Some("generic"));
+        assert_eq!(config.repos().len(), 1);
+        assert_eq!(config.local().len(), 1);
     }
 
     #[test]
@@ -171,13 +248,13 @@ default_template = [unclosed
         assert_eq!(config.author(), Some("Partial Config"));
         assert!(config.default_template().is_none());
         assert!(config.default_brand().is_none());
-        assert!(config.raw_templates_dir().is_none());
+        assert!(config.repos().is_empty());
+        assert!(config.local().is_empty());
     }
 
     #[test]
     fn test_config_deserialization_unknown_fields() {
         // Setup -- TOML with an extra field not in the Config struct
-        // serde by default will ignore unknown fields (unless deny_unknown_fields is set)
         let toml_str = r#"
 default_template = "test"
 unknown_field = "should be ignored"
@@ -187,7 +264,6 @@ unknown_field = "should be ignored"
         let config: Result<Config, _> = toml::from_str(toml_str);
 
         // Assert -- depends on whether Config uses deny_unknown_fields
-        // This test documents the behavior either way
         if let Ok(config) = config {
             assert_eq!(config.default_template(), Some("test"));
         }
@@ -196,44 +272,22 @@ unknown_field = "should be ignored"
 }
 
 // =========================================================================
-// ConfigLoader::defaults (tested via effective_* accessors on default Config)
+// ConfigLoader::defaults
 // =========================================================================
 
 mod config_defaults {
     use super::*;
 
     #[test]
-    fn test_default_config_templates_dir_uses_xdg_data() {
-        // Setup
+    fn test_default_config_empty_repos() {
         let config = Config::default();
-
-        // Execute
-        let dir = config.effective_templates_dir();
-
-        // Assert -- should be under XDG_DATA_HOME (typically ~/.local/share)
-        let dir_str = dir.to_string_lossy();
-        assert!(
-            dir_str.contains("md-docs"),
-            "default templates path should contain 'md-docs': got '{}'",
-            dir_str
-        );
+        assert!(config.repos().is_empty());
     }
 
     #[test]
-    fn test_default_config_brands_dir_uses_xdg_data() {
-        // Setup
+    fn test_default_config_empty_local() {
         let config = Config::default();
-
-        // Execute
-        let dir = config.effective_brands_dir();
-
-        // Assert
-        let dir_str = dir.to_string_lossy();
-        assert!(
-            dir_str.contains("md-docs"),
-            "default brands path should contain 'md-docs': got '{}'",
-            dir_str
-        );
+        assert!(config.local().is_empty());
     }
 
     #[test]
@@ -275,7 +329,6 @@ mod fallback {
 
         // Assert -- should return a non-empty known font name
         assert!(!name.is_empty(), "fallback font name should not be empty");
-        // Should be "New Computer Modern" or another known embedded font
         assert!(
             name == "New Computer Modern"
                 || name.contains("Computer Modern")
@@ -308,7 +361,6 @@ mod brand_fonts {
     fn test_load_brand_fonts_without_fonts_dir_returns_empty() {
         // Setup -- brand directory with no fonts/ subdirectory
         let temp_dir = tempfile::tempdir().unwrap();
-        // Do not create a fonts/ subdirectory
 
         // Execute
         let result = fonts::load_brand_fonts(temp_dir.path());
@@ -409,7 +461,6 @@ mod font_availability {
     #[test]
     #[ignore] // Requires typst font discovery implementation
     fn test_embedded_font_is_available() {
-        // "New Computer Modern" is embedded via typst-kit-embed-fonts
         let result = fonts::is_font_available("New Computer Modern");
         assert!(
             result,

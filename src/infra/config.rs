@@ -75,22 +75,30 @@ impl ConfigLoader {
 
     /// Merge a partial config on top of a base config.
     ///
-    /// Only non-None fields in `overlay` replace the corresponding fields in `base`.
+    /// For `Option` fields, non-None overlay replaces base.
+    /// For `Vec` fields (repos, local), non-empty overlay replaces base entirely.
     fn merge(base: Config, overlay: Config) -> Config {
         Config {
             default_template: overlay.default_template.or(base.default_template),
             default_brand: overlay.default_brand.or(base.default_brand),
-            templates_dir: overlay.templates_dir.or(base.templates_dir),
-            brands_dir: overlay.brands_dir.or(base.brands_dir),
             output_dir: overlay.output_dir.or(base.output_dir),
             author: overlay.author.or(base.author),
+            repos: if overlay.repos.is_empty() {
+                base.repos
+            } else {
+                overlay.repos
+            },
+            local: if overlay.local.is_empty() {
+                base.local
+            } else {
+                overlay.local
+            },
         }
     }
 
     /// Return the built-in default configuration.
     ///
-    /// All fields are None -- the effective_* methods on Config provide
-    /// XDG-based fallbacks when no value is configured.
+    /// All Option fields are None, Vec fields are empty.
     fn defaults() -> Config {
         Config::default()
     }

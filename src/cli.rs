@@ -86,26 +86,19 @@ pub enum Commands {
 /// Subcommands for template management.
 #[derive(Debug, Subcommand)]
 pub enum TemplateCommands {
-    /// List all available templates with metadata.
+    /// List all available templates with metadata and source.
     List,
 
-    /// Install templates (defaults to official repo, or specify a custom URL).
+    /// Install template repos from config. Installs all repos if no name given.
     Install {
-        /// Custom git repository URL. Uses the official repo if omitted.
-        #[arg(short, long)]
-        uri: Option<String>,
-    },
-
-    /// Update installed templates (git pull).
-    Update {
-        /// Specific template name to update. Updates all if omitted.
+        /// Specific repo name to install. Installs all if omitted.
         name: Option<String>,
     },
 
-    /// Remove an installed template.
-    Remove {
-        /// Template name to remove.
-        name: String,
+    /// Update installed template repos (git pull). Updates all if no name given.
+    Update {
+        /// Specific repo name to update. Updates all if omitted.
+        name: Option<String>,
     },
 }
 
@@ -142,9 +135,8 @@ pub fn run() -> anyhow::Result<()> {
 
         Commands::Templates { action } => match action {
             TemplateCommands::List => controller.list_templates(),
-            TemplateCommands::Install { uri } => controller.install_templates(uri),
+            TemplateCommands::Install { name } => controller.install_templates(name),
             TemplateCommands::Update { name } => controller.update_templates(name),
-            TemplateCommands::Remove { name } => controller.remove_template(&name),
         },
 
         Commands::Brands { action } => match action {
