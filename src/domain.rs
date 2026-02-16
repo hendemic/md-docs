@@ -417,6 +417,10 @@ pub struct TemplateMetadata {
     /// These modifiers will use their `on_ignore` behavior during conversion.
     #[serde(default)]
     pub ignore: Vec<String>,
+
+    /// Optional starter markdown file included with the template.
+    #[serde(default)]
+    pub starter_file: Option<String>,
 }
 
 /// A discovered template with its filesystem location and parsed metadata.

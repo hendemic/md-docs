@@ -63,6 +63,20 @@ pub enum Commands {
 
     /// Create a `.md-docs.toml` project config in the current directory.
     Init,
+
+    /// Create a new document from a template's starter file.
+    New {
+        /// Template name to create from.
+        template: String,
+
+        /// Output directory (defaults to current directory).
+        #[arg(short, long)]
+        output_dir: Option<PathBuf>,
+
+        /// Custom filename for the output file.
+        #[arg(short, long)]
+        name: Option<String>,
+    },
 }
 
 /// Subcommands for template management.
@@ -130,5 +144,9 @@ pub fn run() -> anyhow::Result<()> {
         Commands::Config => controller.show_config(),
 
         Commands::Init => controller.init_project(),
+
+        Commands::New { template, output_dir, name } => {
+            controller.new_from_template(&template, output_dir, name.as_deref())
+        }
     }
 }

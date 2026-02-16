@@ -299,6 +299,59 @@ impl AppController {
         Ok(())
     }
 
+    // -----------------------------------------------------------------------
+    // New command
+    // -----------------------------------------------------------------------
+
+    /// Create a new document from a template's starter file.
+    ///
+    /// Copies the template's starter markdown file to the specified output
+    /// directory (or current directory), optionally renaming it.
+    pub fn new_from_template(
+        &self,
+        template_name: &str,
+        output_dir: Option<PathBuf>,
+        name: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let template = self.template_manager.resolve_template(template_name)?;
+
+        let starter_filename = template.metadata.starter_file.as_deref()
+            .ok_or_else(|| anyhow::anyhow!(
+                "Template '{}' does not include a starter file.", template_name
+            ))?;
+
+        let starter_path = template.path.join(starter_filename);
+        if !starter_path.is_file() {
+            anyhow::bail!(
+                "Starter file '{}' not found in template '{}'.",
+                starter_filename, template_name
+            );
+        }
+
+        let base_dir = match output_dir {
+            Some(dir) => {
+                std::fs::create_dir_all(&dir)?;
+                dir
+            }
+            None => std::env::current_dir()?,
+        };
+
+        let output_filename = name.unwrap_or(starter_filename);
+        let output_path = base_dir.join(output_filename);
+
+        if output_path.exists() {
+            anyhow::bail!(
+                "File '{}' already exists. Use -n to specify a different name.",
+                output_path.display()
+            );
+        }
+
+        std::fs::copy(&starter_path, &output_path)?;
+        println!("Created {}", output_path.display());
+
+        Ok(())
+    }
+
     /// Create a `.md-docs.toml` project config file in the current directory.
     pub fn init_project(&self) -> anyhow::Result<()> {
         let config_path = std::env::current_dir()?.join(".md-docs.toml");

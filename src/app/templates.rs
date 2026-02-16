@@ -250,6 +250,7 @@ impl TemplateManager {
                 description: None,
                 default_brand: None,
                 ignore: Vec::new(),
+                starter_file: None,
             });
         }
 

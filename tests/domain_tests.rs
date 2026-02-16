@@ -826,6 +826,7 @@ mod display_impls {
                 description: Some("Two-column resume layout".to_string()),
                 default_brand: Some("generic".to_string()),
                 ignore: vec![],
+                starter_file: None,
             },
         };
 
@@ -849,6 +850,7 @@ mod display_impls {
                 description: None,
                 default_brand: None,
                 ignore: vec![],
+                starter_file: None,
             },
         };
 

@@ -49,6 +49,7 @@ fn real_template() -> Template {
             description: Some("Two-column resume layout".to_string()),
             default_brand: Some("generic".to_string()),
             ignore: vec![],
+            starter_file: None,
         },
     }
 }
@@ -257,6 +258,7 @@ mod typst_compilation {
                 description: None,
                 default_brand: None,
                 ignore: vec![],
+                starter_file: None,
             },
         };
         let brand = real_brand();
@@ -336,6 +338,7 @@ mod full_pipeline {
                 description: Some("ATS-friendly layout".to_string()),
                 default_brand: Some("generic".to_string()),
                 ignore: vec!["date_separator".to_string(), "column_break".to_string()],
+                starter_file: None,
             },
         };
         let brand = real_brand();
