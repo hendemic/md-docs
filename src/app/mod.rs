@@ -182,7 +182,12 @@ impl AppController {
             anyhow::bail!("No templates found. Install templates with 'md-docs templates install <repo_url>'.");
         }
 
-        let items: Vec<String> = templates.iter().map(|t| t.to_string()).collect();
+        let rows: Vec<TableRow> = templates.iter().map(|t| TableRow {
+            id: &t.id,
+            name: &t.metadata.name,
+            description: t.metadata.description.as_deref(),
+        }).collect();
+        let items = format_selector_items(&rows);
         let selection = dialoguer::Select::new()
             .with_prompt("Select a template")
             .items(&items)
@@ -219,7 +224,12 @@ impl AppController {
             anyhow::bail!("No brands found. Install brands with 'md-docs templates install <repo_url>'.");
         }
 
-        let items: Vec<String> = brands.iter().map(|b| b.to_string()).collect();
+        let rows: Vec<TableRow> = brands.iter().map(|b| TableRow {
+            id: &b.id,
+            name: &b.metadata.name,
+            description: b.metadata.description.as_deref(),
+        }).collect();
+        let items = format_selector_items(&rows);
         let selection = dialoguer::Select::new()
             .with_prompt("Select a brand")
             .items(&items)
@@ -502,19 +512,39 @@ fn format_table(rows: &[TableRow<'_>]) -> Vec<String> {
         header_name.bold(),
         " ".repeat(name_col.saturating_sub(header_name.len()))
     );
-    lines.push(format!("  {}{}{}", hdr_id, hdr_name, header_desc.bold()));
+    lines.push(format!("  {}{}{}", hdr_name, hdr_id, header_desc.bold()));
 
     // Data rows.
     for row in rows {
         let desc = row.description.unwrap_or("");
         // Pad id and name manually so ANSI escape codes from bold/dimmed
         // don't interfere with the width formatting.
+        let name_padded = format!("{}{}", row.name.cyan(), " ".repeat(name_col.saturating_sub(row.name.len())));
         let id_padded = format!("{}{}", row.id.bold(), " ".repeat(id_col.saturating_sub(row.id.len())));
-        let name_padded = format!("{}{}", row.name, " ".repeat(name_col.saturating_sub(row.name.len())));
-        lines.push(format!("  {}{}{}", id_padded, name_padded, desc.dimmed()));
+        lines.push(format!("  {}{}{}", name_padded, id_padded, desc.dimmed()));
     }
 
     lines
+}
+
+/// Format table rows as padded, colored lines for interactive selectors.
+///
+/// Same column alignment as `format_table` but without header row or indentation.
+fn format_selector_items(rows: &[TableRow<'_>]) -> Vec<String> {
+    let name_width = rows.iter().map(|r| r.name.len()).max().unwrap_or(0);
+    let id_width = rows.iter().map(|r| r.id.len()).max().unwrap_or(0);
+
+    let name_col = name_width + TABLE_COL_PAD;
+    let id_col = id_width + TABLE_COL_PAD;
+
+    rows.iter()
+        .map(|row| {
+            let desc = row.description.unwrap_or("");
+            let name_padded = format!("{}{}", row.name.cyan(), " ".repeat(name_col.saturating_sub(row.name.len())));
+            let id_padded = format!("{}{}", row.id.bold(), " ".repeat(id_col.saturating_sub(row.id.len())));
+            format!("{}{}{}", name_padded, id_padded, desc.dimmed())
+        })
+        .collect()
 }
 
 #[cfg(test)]

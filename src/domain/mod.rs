@@ -440,24 +440,24 @@ pub struct Template {
 impl fmt::Display for Template {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.metadata.description {
-            Some(desc) => write!(f, "{}: {} -- {}", self.id, self.metadata.name, desc),
-            None => write!(f, "{}: {}", self.id, self.metadata.name),
+            Some(desc) => write!(f, "{} ({}) -- {}", self.metadata.name, self.id, desc),
+            None => write!(f, "{} ({})", self.metadata.name, self.id),
         }
     }
 }
 
 impl Template {
-    /// Format for colored terminal list output.
-    /// Bold id, normal name, dimmed description.
+    /// Format for colored terminal selector output.
+    /// Cyan name, bold id, dimmed description.
     pub fn colored_display(&self) -> String {
         match &self.metadata.description {
             Some(desc) => format!(
-                "{}: {} -- {}",
+                "{} ({}) -- {}",
+                self.metadata.name.cyan(),
                 self.id.bold(),
-                self.metadata.name,
                 desc.dimmed()
             ),
-            None => format!("{}: {}", self.id.bold(), self.metadata.name),
+            None => format!("{} ({})", self.metadata.name.cyan(), self.id.bold()),
         }
     }
 }
@@ -488,23 +488,23 @@ pub struct Brand {
 impl fmt::Display for Brand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.metadata.description {
-            Some(desc) => write!(f, "{}: {} -- {}", self.id, self.metadata.name, desc),
-            None => write!(f, "{}: {}", self.id, self.metadata.name),
+            Some(desc) => write!(f, "{} ({}) -- {}", self.metadata.name, self.id, desc),
+            None => write!(f, "{} ({})", self.metadata.name, self.id),
         }
     }
 }
 
 impl Brand {
-    /// Format for colored terminal list output.
+    /// Format for colored terminal selector output.
     pub fn colored_display(&self) -> String {
         match &self.metadata.description {
             Some(desc) => format!(
-                "{}: {} -- {}",
+                "{} ({}) -- {}",
+                self.metadata.name.cyan(),
                 self.id.bold(),
-                self.metadata.name,
                 desc.dimmed()
             ),
-            None => format!("{}: {}", self.id.bold(), self.metadata.name),
+            None => format!("{} ({})", self.metadata.name.cyan(), self.id.bold()),
         }
     }
 }
