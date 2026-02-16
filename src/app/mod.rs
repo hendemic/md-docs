@@ -262,9 +262,19 @@ impl AppController {
             self.emit(CliMessage::Warning("No templates found.".to_string()));
             return Ok(());
         }
+
+        let rows: Vec<TableRow> = templates
+            .iter()
+            .map(|t| TableRow {
+                id: &t.id,
+                name: &t.metadata.name,
+                description: t.metadata.description.as_deref(),
+            })
+            .collect();
+
         self.emit(CliMessage::Info("Available templates:".to_string()));
-        for template in &templates {
-            self.emit(CliMessage::Plain(format!("  {}", template.colored_display())));
+        for line in format_table(&rows) {
+            self.emit(CliMessage::Plain(line));
         }
         Ok(())
     }
@@ -307,9 +317,19 @@ impl AppController {
             self.emit(CliMessage::Warning("No brands found.".to_string()));
             return Ok(());
         }
+
+        let rows: Vec<TableRow> = brands
+            .iter()
+            .map(|b| TableRow {
+                id: &b.id,
+                name: &b.metadata.name,
+                description: b.metadata.description.as_deref(),
+            })
+            .collect();
+
         self.emit(CliMessage::Info("Available brands:".to_string()));
-        for brand in &brands {
-            self.emit(CliMessage::Plain(format!("  {}", brand.colored_display())));
+        for line in format_table(&rows) {
+            self.emit(CliMessage::Plain(line));
         }
         Ok(())
     }
@@ -431,4 +451,68 @@ impl AppController {
 
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------
+// Table formatting helpers
+// ---------------------------------------------------------------------------
+
+/// A row of data to display in a formatted table.
+struct TableRow<'a> {
+    id: &'a str,
+    name: &'a str,
+    description: Option<&'a str>,
+}
+
+/// Minimum padding (in spaces) between the widest value and the next column.
+const TABLE_COL_PAD: usize = 3;
+
+/// Format a list of table rows into aligned, colored output lines.
+///
+/// Computes column widths dynamically from the data, emits a bold header row
+/// followed by data rows with bold id, normal name, and dimmed description.
+/// Each line is prefixed with two spaces of indentation.
+fn format_table(rows: &[TableRow<'_>]) -> Vec<String> {
+    let header_id = "ID";
+    let header_name = "Name";
+    let header_desc = "Description";
+
+    // Compute max width for each column (considering both header and data).
+    let id_width = rows.iter().map(|r| r.id.len()).max().unwrap_or(0).max(header_id.len());
+    let name_width = rows
+        .iter()
+        .map(|r| r.name.len())
+        .max()
+        .unwrap_or(0)
+        .max(header_name.len());
+
+    let id_col = id_width + TABLE_COL_PAD;
+    let name_col = name_width + TABLE_COL_PAD;
+
+    let mut lines = Vec::with_capacity(rows.len() + 1);
+
+    // Header row (bold). Pad manually to avoid ANSI codes disrupting alignment.
+    let hdr_id = format!(
+        "{}{}",
+        header_id.bold(),
+        " ".repeat(id_col.saturating_sub(header_id.len()))
+    );
+    let hdr_name = format!(
+        "{}{}",
+        header_name.bold(),
+        " ".repeat(name_col.saturating_sub(header_name.len()))
+    );
+    lines.push(format!("  {}{}{}", hdr_id, hdr_name, header_desc.bold()));
+
+    // Data rows.
+    for row in rows {
+        let desc = row.description.unwrap_or("");
+        // Pad id and name manually so ANSI escape codes from bold/dimmed
+        // don't interfere with the width formatting.
+        let id_padded = format!("{}{}", row.id.bold(), " ".repeat(id_col.saturating_sub(row.id.len())));
+        let name_padded = format!("{}{}", row.name, " ".repeat(name_col.saturating_sub(row.name.len())));
+        lines.push(format!("  {}{}{}", id_padded, name_padded, desc.dimmed()));
+    }
+
+    lines
 }
