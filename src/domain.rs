@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 
+use colored::Colorize;
 use serde::Deserialize;
 
 // ---------------------------------------------------------------------------
@@ -445,6 +446,22 @@ impl fmt::Display for Template {
     }
 }
 
+impl Template {
+    /// Format for colored terminal list output.
+    /// Bold id, normal name, dimmed description.
+    pub fn colored_display(&self) -> String {
+        match &self.metadata.description {
+            Some(desc) => format!(
+                "{}: {} -- {}",
+                self.id.bold(),
+                self.metadata.name,
+                desc.dimmed()
+            ),
+            None => format!("{}: {}", self.id.bold(), self.metadata.name),
+        }
+    }
+}
+
 /// Metadata for a brand, loaded from `metadata.toml` in the brand directory.
 #[derive(Debug, Clone, Deserialize)]
 pub struct BrandMetadata {
@@ -473,6 +490,21 @@ impl fmt::Display for Brand {
         match &self.metadata.description {
             Some(desc) => write!(f, "{}: {} -- {}", self.id, self.metadata.name, desc),
             None => write!(f, "{}: {}", self.id, self.metadata.name),
+        }
+    }
+}
+
+impl Brand {
+    /// Format for colored terminal list output.
+    pub fn colored_display(&self) -> String {
+        match &self.metadata.description {
+            Some(desc) => format!(
+                "{}: {} -- {}",
+                self.id.bold(),
+                self.metadata.name,
+                desc.dimmed()
+            ),
+            None => format!("{}: {}", self.id.bold(), self.metadata.name),
         }
     }
 }
@@ -635,5 +667,78 @@ impl ConversionContext {
             block_modifiers,
             inline_modifiers,
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CLI output messages
+// ---------------------------------------------------------------------------
+
+/// A CLI output message with semantic level.
+///
+/// All user-facing output goes through this enum so the CLI has
+/// a unified visual style. Each variant maps to a color and prefix.
+///
+/// # Routing
+/// - `Success`, `Info`, `Log`, `Plain` -> stdout
+/// - `Warning`, `Error` -> stderr
+#[derive(Debug, Clone)]
+pub enum CliMessage {
+    /// Operation completed successfully. Green prefix "✓".
+    Success(String),
+
+    /// Informational status message. Cyan, no prefix.
+    Info(String),
+
+    /// Debug/verbose detail. Dimmed, only shown when --verbose is set.
+    Log(String),
+
+    /// Non-fatal issue. Yellow prefix "warning:".
+    Warning(String),
+
+    /// Fatal error message. Red prefix "error:".
+    Error(String),
+
+    /// Pre-formatted output. Printed to stdout as-is, no additional coloring.
+    Plain(String),
+}
+
+impl CliMessage {
+    /// Format this message with colors and prefix for terminal display.
+    pub fn formatted(&self) -> String {
+        match self {
+            CliMessage::Success(msg) => format!("{} {}", "✓".green().bold(), msg),
+            CliMessage::Info(msg) => format!("{}", msg.cyan()),
+            CliMessage::Log(msg) => format!("{}", msg.dimmed()),
+            CliMessage::Warning(msg) => format!("{} {}", "warning:".yellow().bold(), msg),
+            CliMessage::Error(msg) => format!("{} {}", "error:".red().bold(), msg),
+            CliMessage::Plain(msg) => msg.clone(),
+        }
+    }
+
+    /// Print this message to the appropriate stream (stdout or stderr).
+    ///
+    /// `Log` messages are only printed when `verbose` is true.
+    /// All other variants always print.
+    pub fn print(&self, verbose: bool) {
+        match self {
+            CliMessage::Log(_) => {
+                if verbose {
+                    println!("{}", self.formatted());
+                }
+            }
+            CliMessage::Warning(_) | CliMessage::Error(_) => {
+                eprintln!("{}", self.formatted());
+            }
+            _ => {
+                println!("{}", self.formatted());
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for CliMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.formatted())
     }
 }

@@ -5,6 +5,11 @@
 
 mod cli;
 
-fn main() -> anyhow::Result<()> {
-    cli::run()
+use md_docs::domain::CliMessage;
+
+fn main() {
+    if let Err(err) = cli::run() {
+        CliMessage::Error(format!("{:#}", err)).print(false);
+        std::process::exit(1);
+    }
 }

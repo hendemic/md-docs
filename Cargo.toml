@@ -16,6 +16,7 @@ pulldown-cmark = { version = "0.13", features = ["html"] }
 
 # CLI
 clap = { version = "4", features = ["derive"] }
+colored = "2"
 dialoguer = "0.12"
 
 # Serialization

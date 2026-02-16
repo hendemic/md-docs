@@ -1,4 +1,4 @@
-use md_docs::app::templates::{load_modifiers, TemplateManager};
+use md_docs::infra::templates::{load_modifiers, TemplateManager};
 use md_docs::domain::{Config, ModifierType, OnIgnore};
 
 // =========================================================================

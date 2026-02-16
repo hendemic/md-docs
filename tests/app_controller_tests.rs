@@ -20,7 +20,7 @@ mod controller_construction {
     #[test]
     fn test_new_succeeds() {
         // Execute
-        let result = AppController::new();
+        let result = AppController::new(false);
 
         // Assert -- should succeed even if no config files exist
         assert!(result.is_ok(), "AppController::new should succeed: {:?}", result.err());
@@ -71,7 +71,7 @@ mod input_parsing {
     #[ignore] // Requires implementation -- parse_input is private, tested via convert
     fn test_convert_with_real_resume_parses_successfully() {
         // Setup
-        let controller = AppController::new().unwrap();
+        let controller = AppController::new(false).unwrap();
         let temp_dir = tempfile::tempdir().unwrap();
         let output_path = temp_dir.path().join("resume.pdf");
 
@@ -90,7 +90,7 @@ mod input_parsing {
     #[test]
     fn test_convert_nonexistent_input_fails() {
         // Setup
-        let controller = AppController::new().unwrap();
+        let controller = AppController::new(false).unwrap();
 
         // Execute
         let result = controller.convert(
@@ -133,7 +133,7 @@ mod resolution_fallbacks {
     #[test]
     fn test_convert_with_explicit_template_name() {
         // Setup
-        let controller = AppController::new().unwrap();
+        let controller = AppController::new(false).unwrap();
 
         // Execute -- use a nonexistent template name (should fail since not found)
         let result = controller.convert(
@@ -150,7 +150,7 @@ mod resolution_fallbacks {
     #[test]
     fn test_convert_with_explicit_brand_name() {
         // Setup
-        let controller = AppController::new().unwrap();
+        let controller = AppController::new(false).unwrap();
 
         // Execute -- use a nonexistent brand name
         let result = controller.convert(
@@ -168,7 +168,7 @@ mod resolution_fallbacks {
     #[ignore] // Requires implementation -- tests template's default_brand fallback
     fn test_convert_without_brand_uses_template_default() {
         // Setup
-        let controller = AppController::new().unwrap();
+        let controller = AppController::new(false).unwrap();
         let temp_dir = tempfile::tempdir().unwrap();
         let output_path = temp_dir.path().join("output.pdf");
 
@@ -191,7 +191,7 @@ mod resolution_fallbacks {
     #[test]
     fn test_list_templates_succeeds() {
         // Setup
-        let controller = AppController::new().unwrap();
+        let controller = AppController::new(false).unwrap();
 
         // Execute
         let result = controller.list_templates();
@@ -203,7 +203,7 @@ mod resolution_fallbacks {
     #[test]
     fn test_list_brands_succeeds() {
         // Setup
-        let controller = AppController::new().unwrap();
+        let controller = AppController::new(false).unwrap();
 
         // Execute
         let result = controller.list_brands();

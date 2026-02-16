@@ -2,34 +2,34 @@
 //!
 //! The `AppController` receives parsed CLI commands and coordinates between
 //! config resolution, template/brand discovery, markdown conversion,
-//! and Typst compilation.
+//! and Typst compilation. All I/O services live in `infra/`.
 //!
 //! # Module dependency graph
 //! ```text
 //! app/mod.rs  (AppController)
-//!   |-- app/config.rs      (ConfigLoader)
-//!   |-- app/compiler.rs    (compile, assemble, generate)
-//!   |-- app/converter.rs   (markdown_to_typst)
-//!   |-- app/templates.rs   (TemplateManager, load_modifiers)
-//!   |-- app/fonts.rs       (is_font_available, load_brand_fonts, fallback_font)
-//!   +-- domain.rs          (all types)
+//!   |-- app/compiler.rs      (compile, assemble, generate)
+//!   |-- app/converter.rs     (markdown_to_typst)
+//!   |-- infra/config.rs      (ConfigLoader)
+//!   |-- infra/templates.rs   (TemplateManager, load_modifiers)
+//!   |-- infra/fonts.rs       (is_font_available, load_brand_fonts, fallback_font)
+//!   +-- domain.rs            (all types)
 //! ```
 
 pub mod compiler;
-pub mod config;
 pub mod converter;
-pub mod fonts;
-pub mod templates;
 
 use std::path::{Path, PathBuf};
 
+use colored::Colorize;
+
 use crate::domain::{
-    Brand, Config, ContentSections, ConversionContext, Document, Metadata, MdDocsError, Template,
-    resolve_modifiers,
+    Brand, CliMessage, Config, ContentSections, ConversionContext, Document, Metadata, MdDocsError,
+    Template, resolve_modifiers,
 };
 
-use self::config::ConfigLoader;
-use self::templates::TemplateManager;
+use crate::infra::config::ConfigLoader;
+use crate::infra::logger::FileLogger;
+use crate::infra::templates::TemplateManager;
 
 /// Central application controller.
 ///
@@ -41,19 +41,34 @@ pub struct AppController {
 
     /// Template and brand discovery manager.
     template_manager: TemplateManager,
+
+    /// Whether to show verbose/debug output.
+    verbose: bool,
+
+    /// File logger for persistent log entries.
+    logger: FileLogger,
 }
 
 impl AppController {
     /// Build a new AppController by loading layered configuration.
     ///
     /// Loads config from: defaults <- global <- project <- (CLI args applied later).
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new(verbose: bool) -> anyhow::Result<Self> {
         let config = ConfigLoader::load()?;
         let template_manager = TemplateManager::new(&config);
+        let logger = FileLogger::new();
         Ok(Self {
             config,
             template_manager,
+            verbose,
+            logger,
         })
+    }
+
+    /// Emit a CLI message to terminal and log file.
+    fn emit(&self, msg: CliMessage) {
+        self.logger.log_message(&msg);
+        msg.print(self.verbose);
     }
 
     // -----------------------------------------------------------------------
@@ -78,19 +93,33 @@ impl AppController {
         output: Option<PathBuf>,
     ) -> anyhow::Result<()> {
         // 1. Parse the input markdown file
+        self.emit(CliMessage::Log(format!("Reading input: {}", input.display())));
         let mut document = self.parse_input(&input)?;
+        self.emit(CliMessage::Log(format!(
+            "Parsed frontmatter: title={:?}, author={:?}",
+            document.metadata.title, document.metadata.author
+        )));
 
         // 2. Resolve template and brand
         let template = self.resolve_template(template_name)?;
+        self.emit(CliMessage::Log(format!(
+            "Template: {} ({})", template.id, template.path.display()
+        )));
         let brand = self.resolve_brand(brand_name, &template)?;
+        self.emit(CliMessage::Log(format!(
+            "Brand: {} ({})", brand.id, brand.path.display()
+        )));
 
         // 3. Load and resolve modifiers
-        let registry = templates::load_modifiers()?;
+        let registry = crate::infra::templates::load_modifiers()?;
         let resolved = resolve_modifiers(&registry, &template.metadata.ignore);
         let context = ConversionContext::from_resolved(&resolved);
 
         // 4. Convert markdown to Typst
         let typst_content = converter::markdown_to_typst(&document.raw_body, &context)?;
+        self.emit(CliMessage::Log(format!(
+            "Converted markdown to Typst ({} bytes)", typst_content.len()
+        )));
 
         // 5. Split into content sections at the COLUMNS_START marker
         let sections = ContentSections::from_typst_content(&typst_content, "%%COLUMNS_START%%");
@@ -100,9 +129,15 @@ impl AppController {
         let output_path = self.resolve_output(&input, output);
 
         // 7. Compile to PDF
-        println!("Compiling {} with template '{}' and brand '{}'...", input.display(), template.id, brand.id);
-        compiler::compile(&document, &template, &brand, &output_path)?;
-        println!("Output: {}", output_path.display());
+        self.emit(CliMessage::Info(format!(
+            "Compiling {} with template '{}' and brand '{}'...",
+            input.display(), template.id, brand.id
+        )));
+        let result = compiler::compile(&document, &template, &brand, &output_path)?;
+        for w in &result.warnings {
+            self.emit(CliMessage::Warning(format!("typst: {}", w)));
+        }
+        self.emit(CliMessage::Success(format!("Output: {}", output_path.display())));
 
         Ok(())
     }
@@ -224,12 +259,12 @@ impl AppController {
     pub fn list_templates(&self) -> anyhow::Result<()> {
         let templates = self.template_manager.discover_templates()?;
         if templates.is_empty() {
-            println!("No templates found.");
+            self.emit(CliMessage::Warning("No templates found.".to_string()));
             return Ok(());
         }
-        println!("Available templates:");
+        self.emit(CliMessage::Info("Available templates:".to_string()));
         for template in &templates {
-            println!("  {}", template);
+            self.emit(CliMessage::Plain(format!("  {}", template.colored_display())));
         }
         Ok(())
     }
@@ -240,24 +275,24 @@ impl AppController {
     pub fn install_templates(&self, repo_url: Option<String>) -> anyhow::Result<()> {
         const DEFAULT_REPO: &str = "https://github.com/hendemic/md-docs-templates.git";
         let url = repo_url.as_deref().unwrap_or(DEFAULT_REPO);
-        println!("Installing templates from {}...", url);
+        self.emit(CliMessage::Info(format!("Installing templates from {}...", url)));
         self.template_manager.install_repo(url)?;
-        println!("Templates installed successfully.");
+        self.emit(CliMessage::Success("Templates installed successfully.".to_string()));
         Ok(())
     }
 
     /// Update installed templates (git pull).
     pub fn update_templates(&self, name: Option<String>) -> anyhow::Result<()> {
-        println!("Updating templates...");
+        self.emit(CliMessage::Info("Updating templates...".to_string()));
         self.template_manager.update_repo(name.as_deref())?;
-        println!("Templates updated successfully.");
+        self.emit(CliMessage::Success("Templates updated successfully.".to_string()));
         Ok(())
     }
 
     /// Remove an installed template by name.
     pub fn remove_template(&self, name: &str) -> anyhow::Result<()> {
         self.template_manager.remove_template(name)?;
-        println!("Template '{}' removed.", name);
+        self.emit(CliMessage::Success(format!("Template '{}' removed.", name)));
         Ok(())
     }
 
@@ -269,12 +304,12 @@ impl AppController {
     pub fn list_brands(&self) -> anyhow::Result<()> {
         let brands = self.template_manager.discover_brands()?;
         if brands.is_empty() {
-            println!("No brands found.");
+            self.emit(CliMessage::Warning("No brands found.".to_string()));
             return Ok(());
         }
-        println!("Available brands:");
+        self.emit(CliMessage::Info("Available brands:".to_string()));
         for brand in &brands {
-            println!("  {}", brand);
+            self.emit(CliMessage::Plain(format!("  {}", brand.colored_display())));
         }
         Ok(())
     }
@@ -285,20 +320,36 @@ impl AppController {
 
     /// Display the current resolved configuration.
     pub fn show_config(&self) -> anyhow::Result<()> {
-        println!("Current configuration:");
-        println!("  Templates dir: {}", self.config.effective_templates_dir().display());
-        println!("  Brands dir:    {}", self.config.effective_brands_dir().display());
+        self.emit(CliMessage::Info("Current configuration:".to_string()));
+        self.emit(CliMessage::Plain(format!(
+            "  {}: {}",
+            "Templates dir".bold(),
+            self.config.effective_templates_dir().display().to_string().dimmed()
+        )));
+        self.emit(CliMessage::Plain(format!(
+            "  {}: {}",
+            "Brands dir".bold(),
+            self.config.effective_brands_dir().display().to_string().dimmed()
+        )));
         if let Some(t) = self.config.default_template() {
-            println!("  Default template: {}", t);
+            self.emit(CliMessage::Plain(format!(
+                "  {}: {}", "Default template".bold(), t.dimmed()
+            )));
         }
         if let Some(b) = self.config.default_brand() {
-            println!("  Default brand:    {}", b);
+            self.emit(CliMessage::Plain(format!(
+                "  {}: {}", "Default brand".bold(), b.dimmed()
+            )));
         }
         if let Some(d) = self.config.output_dir() {
-            println!("  Output dir:       {}", d.display());
+            self.emit(CliMessage::Plain(format!(
+                "  {}: {}", "Output dir".bold(), d.display().to_string().dimmed()
+            )));
         }
         if let Some(a) = self.config.author() {
-            println!("  Author:           {}", a);
+            self.emit(CliMessage::Plain(format!(
+                "  {}: {}", "Author".bold(), a.dimmed()
+            )));
         }
         Ok(())
     }
@@ -351,14 +402,14 @@ impl AppController {
         }
 
         std::fs::copy(&starter_path, &output_path)?;
-        println!("Created {}", output_path.display());
+        self.emit(CliMessage::Success(format!("Created {}", output_path.display())));
 
         Ok(())
     }
 
     /// Create the global config file at `~/.config/md-docs/config.toml`.
     pub fn init_project(&self) -> anyhow::Result<()> {
-        let config_path = config::ConfigLoader::global_config_path();
+        let config_path = ConfigLoader::global_config_path();
 
         if config_path.exists() {
             anyhow::bail!("Global config already exists at {}", config_path.display());
@@ -376,7 +427,7 @@ impl AppController {
 "#;
 
         std::fs::write(&config_path, default_content)?;
-        println!("Created {}", config_path.display());
+        self.emit(CliMessage::Success(format!("Created {}", config_path.display())));
 
         Ok(())
     }

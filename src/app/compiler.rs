@@ -26,6 +26,13 @@ use typst_as_lib::typst_kit_options::TypstKitFontOptions;
 
 use crate::domain::{Brand, ContentSections, Document, Metadata, Template};
 
+/// Result of a successful Typst compilation.
+#[derive(Debug)]
+pub struct CompileResult {
+    /// Warnings emitted during compilation (e.g., unknown font family).
+    pub warnings: Vec<String>,
+}
+
 /// Compile a document to PDF using the specified template and brand.
 ///
 /// Steps:
@@ -42,9 +49,9 @@ pub fn compile(
     template: &Template,
     brand: &Brand,
     output_path: &Path,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<CompileResult> {
     let temp_dir = assemble_temp_dir(template, brand, document)?;
-    let pdf_bytes = compile_typst(temp_dir.path())?;
+    let (pdf_bytes, warnings) = compile_typst(temp_dir.path())?;
 
     // Ensure parent directory exists
     if let Some(parent) = output_path.parent() {
@@ -53,7 +60,7 @@ pub fn compile(
 
     std::fs::write(output_path, pdf_bytes)?;
 
-    Ok(())
+    Ok(CompileResult { warnings })
 }
 
 /// Create a temporary directory and populate it with template, brand, and content files.
@@ -231,7 +238,7 @@ fn copy_brand_files(brand: &Brand, temp_dir: &Path) -> anyhow::Result<()> {
 /// 3. Enable font discovery via typst-kit-fonts
 /// 4. Compile to a PagedDocument
 /// 5. Generate PDF bytes
-fn compile_typst(temp_dir: &Path) -> anyhow::Result<Vec<u8>> {
+fn compile_typst(temp_dir: &Path) -> anyhow::Result<(Vec<u8>, Vec<String>)> {
     // Read template.typ content
     let template_content = std::fs::read_to_string(temp_dir.join("template.typ"))?;
 
@@ -251,10 +258,8 @@ fn compile_typst(temp_dir: &Path) -> anyhow::Result<Vec<u8>> {
     // Compile the template
     let result = engine.compile::<PagedDocument>();
 
-    // Check warnings
-    for warning in &result.warnings {
-        eprintln!("typst warning: {:?}", warning);
-    }
+    // Collect warnings instead of printing them
+    let warnings: Vec<String> = result.warnings.iter().map(|w| format!("{:?}", w)).collect();
 
     // Extract the compiled document
     let doc = result
@@ -265,7 +270,7 @@ fn compile_typst(temp_dir: &Path) -> anyhow::Result<Vec<u8>> {
     let pdf_bytes = typst_pdf::pdf(&doc, &typst_pdf::PdfOptions::default())
         .map_err(|e| anyhow::anyhow!("PDF generation failed: {:?}", e))?;
 
-    Ok(pdf_bytes)
+    Ok((pdf_bytes, warnings))
 }
 
 /// Escape special characters in a string value for Typst string literals.

@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod domain;
+pub mod infra;
 
 // cli is not part of the public API; it is only used by main.rs.
 // main.rs declares its own `mod cli` for binary-only access.

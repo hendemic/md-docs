@@ -23,6 +23,10 @@ use md_docs::app::AppController;
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
+
+    /// Enable verbose output (show debug/log messages).
+    #[arg(long, short = 'v', global = true)]
+    pub verbose: bool,
 }
 
 /// Top-level commands.
@@ -126,7 +130,7 @@ pub fn run() -> anyhow::Result<()> {
     let cli = Cli::parse_from(args);
 
     // Build the app controller with layered config
-    let controller = AppController::new()?;
+    let controller = AppController::new(cli.verbose)?;
 
     match cli.command {
         Commands::Convert {

@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use md_docs::app::converter::markdown_to_typst;
-use md_docs::app::templates::{load_modifiers, TemplateManager};
+use md_docs::infra::templates::{load_modifiers, TemplateManager};
 use md_docs::app::AppController;
 use md_docs::domain::*;
 
@@ -43,7 +43,7 @@ mod end_to_end {
     #[ignore] // Requires full implementation
     fn test_end_to_end_resume_2col() {
         // Setup
-        let controller = AppController::new().unwrap();
+        let controller = AppController::new(false).unwrap();
         let temp_dir = tempfile::tempdir().unwrap();
         let output_path = temp_dir.path().join("resume-2col.pdf");
 
@@ -67,7 +67,7 @@ mod end_to_end {
     #[ignore] // Requires full implementation
     fn test_end_to_end_resume_ats() {
         // Setup
-        let controller = AppController::new().unwrap();
+        let controller = AppController::new(false).unwrap();
         let temp_dir = tempfile::tempdir().unwrap();
         let output_path = temp_dir.path().join("resume-ats.pdf");
 
@@ -95,7 +95,7 @@ mod end_to_end {
         std::fs::write(&input_path, "# Hello World\n\nThis is a test.").unwrap();
 
         let output_path = temp_dir.path().join("minimal.pdf");
-        let controller = AppController::new().unwrap();
+        let controller = AppController::new(false).unwrap();
 
         // Execute
         let result = controller.convert(

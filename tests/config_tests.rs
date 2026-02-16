@@ -1,4 +1,4 @@
-use md_docs::app::config::ConfigLoader;
+use md_docs::infra::config::ConfigLoader;
 use md_docs::domain::Config;
 
 // =========================================================================

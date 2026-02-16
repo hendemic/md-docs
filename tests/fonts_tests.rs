@@ -1,4 +1,4 @@
-use md_docs::app::fonts;
+use md_docs::infra::fonts;
 
 // =========================================================================
 // fallback_font
