@@ -57,6 +57,14 @@ impl AppController {
         let config = ConfigLoader::load()?;
         let template_manager = TemplateManager::new(&config);
         let logger = FileLogger::new();
+
+        // Warn if md-docs hasn't been initialized yet
+        if !ConfigLoader::global_config_path().exists() {
+            CliMessage::Warning(
+                "md-docs is not initialized. Run 'md-docs init' to set up config and install templates.".to_string()
+            ).print(verbose);
+        }
+
         Ok(Self {
             config,
             template_manager,
@@ -179,7 +187,7 @@ impl AppController {
         // 3. Interactive selection via dialoguer
         let templates = self.template_manager.discover_templates()?;
         if templates.is_empty() {
-            anyhow::bail!("No templates found. Install templates with 'md-docs templates install <repo_url>'.");
+            anyhow::bail!("No templates found. Install base templates with 'md-docs templates install'.");
         }
 
         let rows: Vec<TableRow> = templates.iter().map(|t| TableRow {
@@ -208,20 +216,20 @@ impl AppController {
             return self.template_manager.resolve_brand(&name);
         }
 
-        // 2. Try template default brand
-        if let Some(ref default) = template.metadata.default_brand {
+        // 2. Try config default (user preference overrides template suggestion)
+        if let Some(default) = self.config.default_brand() {
             return self.template_manager.resolve_brand(default);
         }
 
-        // 3. Try config default
-        if let Some(default) = self.config.default_brand() {
+        // 3. Try template default brand
+        if let Some(ref default) = template.metadata.default_brand {
             return self.template_manager.resolve_brand(default);
         }
 
         // 4. Interactive selection via dialoguer
         let brands = self.template_manager.discover_brands()?;
         if brands.is_empty() {
-            anyhow::bail!("No brands found. Install brands with 'md-docs templates install <repo_url>'.");
+            anyhow::bail!("No brands found. Install base templates with 'md-docs templates install'.");
         }
 
         let rows: Vec<TableRow> = brands.iter().map(|b| TableRow {
@@ -269,7 +277,7 @@ impl AppController {
     pub fn list_templates(&self) -> anyhow::Result<()> {
         let templates = self.template_manager.discover_templates()?;
         if templates.is_empty() {
-            self.emit(CliMessage::Warning("No templates found.".to_string()));
+            self.emit(CliMessage::Warning("No templates found. Install base templates with 'md-docs templates install'.".to_string()));
             return Ok(());
         }
 
@@ -324,7 +332,7 @@ impl AppController {
     pub fn list_brands(&self) -> anyhow::Result<()> {
         let brands = self.template_manager.discover_brands()?;
         if brands.is_empty() {
-            self.emit(CliMessage::Warning("No brands found.".to_string()));
+            self.emit(CliMessage::Warning("No brands found. Install base templates with 'md-docs templates install'.".to_string()));
             return Ok(());
         }
 
@@ -458,6 +466,9 @@ impl AppController {
 
         std::fs::write(&config_path, default_content)?;
         self.emit(CliMessage::Success(format!("Created {}", config_path.display())));
+
+        // Install default templates and brands
+        self.install_templates(None)?;
 
         Ok(())
     }
