@@ -204,43 +204,82 @@ impl Metadata {
 
 /// The three content sections that templates consume.
 ///
-/// Templates import `content.typ` which exports `header`, `body`, and `content`.
-/// The split happens at the `COLUMNS_START` modifier marker.
+/// Templates import `content.typ` which exports `header`, `body`, `content`,
+/// and `body-columns`. The split happens at the `COLUMNS_START` modifier marker,
+/// and body is further split at `COLUMN_BREAK` markers into `body_columns`.
 #[derive(Debug, Clone, Default)]
 pub struct ContentSections {
     /// Typst markup for everything above the column split marker.
     /// If no split marker exists, this is empty.
     pub header: String,
 
-    /// Typst markup for everything below the column split marker.
+    /// Typst markup for everything below the column split marker,
+    /// with `%%COLUMN_BREAK%%` markers stripped.
     /// If no split marker exists, this contains all content.
     pub body: String,
 
-    /// Full Typst markup (header + body combined). Always populated.
+    /// Full Typst markup (header + body combined), with `%%COLUMN_BREAK%%` markers stripped.
+    /// Always populated.
     pub content: String,
+
+    /// Body content split into per-column segments at `%%COLUMN_BREAK%%` markers.
+    /// If no column break markers exist, contains the entire body as a single element.
+    pub body_columns: Vec<String>,
 }
 
+/// The marker used to split body content into separate columns.
+const COLUMN_BREAK_MARKER: &str = "%%COLUMN_BREAK%%";
+
 impl ContentSections {
-    /// Split converted Typst content at the COLUMNS_START marker.
+    /// Split converted Typst content at the COLUMNS_START marker, then further
+    /// split the body at `%%COLUMN_BREAK%%` markers into `body_columns`.
     ///
-    /// If the marker is present, content above goes to `header` and below to `body`.
-    /// If absent, everything goes to `body` and `header` is empty.
-    /// `content` is always the full text.
+    /// If the COLUMNS_START marker is present, content above goes to `header`
+    /// and below to `body`. If absent, everything goes to `body` and `header`
+    /// is empty.
+    ///
+    /// The `body` and `content` fields have all `%%COLUMN_BREAK%%` markers stripped.
+    /// The `body_columns` vector contains each column segment (trimmed). If no
+    /// column break markers exist, `body_columns` contains the entire body as
+    /// a single element.
     pub fn from_typst_content(typst_content: &str, split_marker: &str) -> Self {
-        let content = typst_content.to_string();
         if let Some(pos) = typst_content.find(split_marker) {
             let header = typst_content[..pos].trim().to_string();
-            let body = typst_content[pos + split_marker.len()..].trim().to_string();
+            let raw_body = typst_content[pos + split_marker.len()..].trim().to_string();
+
+            // Split body into columns at %%COLUMN_BREAK%% markers
+            let body_columns: Vec<String> = raw_body
+                .split(COLUMN_BREAK_MARKER)
+                .map(|s| s.trim().to_string())
+                .collect();
+
+            // Strip column break markers from body and content
+            let body = raw_body.replace(COLUMN_BREAK_MARKER, "");
+            let content = typst_content
+                .replace(COLUMN_BREAK_MARKER, "");
+
             Self {
                 header,
                 body,
                 content,
+                body_columns,
             }
         } else {
+            // No COLUMNS_START marker — all content is body.
+            // Still split at COLUMN_BREAK markers for column support.
+            let body_columns: Vec<String> = typst_content
+                .split(COLUMN_BREAK_MARKER)
+                .map(|s| s.trim().to_string())
+                .collect();
+
+            let body = typst_content.replace(COLUMN_BREAK_MARKER, "");
+            let content = body.clone();
+
             Self {
                 header: String::new(),
-                body: content.clone(),
+                body,
                 content,
+                body_columns,
             }
         }
     }

@@ -276,7 +276,10 @@ fn events_to_typst(markdown: &str, context: &ConversionContext) -> String {
                 // Other inline HTML is silently dropped
             }
             Event::SoftBreak => {
-                output.push('\n');
+                // Emit a Typst forced line break (\) so that source line breaks
+                // are preserved in the output. Without this, Typst treats \n as
+                // a space and adjacent lines merge (e.g., job title + description).
+                output.push_str("\\\n");
             }
             Event::HardBreak => {
                 output.push_str("#v(1em)\n");

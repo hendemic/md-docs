@@ -90,7 +90,7 @@ mod modifier_loading {
         let cb = &registry["column_break"];
 
         assert_eq!(cb.marker, "<!-- COLUMN_BREAK -->");
-        assert_eq!(cb.typst, "#colbreak()");
+        assert_eq!(cb.typst, "%%COLUMN_BREAK%%");
         assert_eq!(cb.on_ignore, OnIgnore::Remove);
         assert_eq!(cb.modifier_type, ModifierType::Block);
     }

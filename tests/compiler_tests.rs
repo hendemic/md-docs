@@ -20,11 +20,13 @@ fn sample_metadata() -> Metadata {
 }
 
 fn sample_sections() -> ContentSections {
+    let body = "== Section\nSome body content.\n".to_string();
     ContentSections {
         header: "= Test Document\nJane Doe\n".to_string(),
-        body: "== Section\nSome body content.\n".to_string(),
+        body: body.clone(),
         content: "= Test Document\nJane Doe\n%%COLUMNS_START%%\n== Section\nSome body content.\n"
             .to_string(),
+        body_columns: vec![body],
     }
 }
 
@@ -186,6 +188,7 @@ mod content_typ_format {
                 header: String::new(),
                 body: "Body content".to_string(),
                 content: "Body content".to_string(),
+                body_columns: vec!["Body content".to_string()],
             },
             raw_body: "Body content".to_string(),
         };

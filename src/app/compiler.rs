@@ -147,6 +147,19 @@ fn generate_content_typ(metadata: &Metadata, sections: &ContentSections) -> Stri
     }
     output.push_str("]\n\n");
 
+    // Body columns array
+    output.push_str("#let body-columns = (\n");
+    for column in &sections.body_columns {
+        output.push_str("  [\n");
+        if !column.is_empty() {
+            output.push_str("    ");
+            output.push_str(column);
+            output.push('\n');
+        }
+        output.push_str("  ],\n");
+    }
+    output.push_str(")\n\n");
+
     // Full content section
     output.push_str("#let content = [\n");
     if !sections.content.is_empty() {

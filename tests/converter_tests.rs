@@ -23,7 +23,7 @@ fn standard_context() -> ConversionContext {
         ResolvedModifier {
             id: "column_break".to_string(),
             marker: "<!-- COLUMN_BREAK -->".to_string(),
-            effective_typst: Some("#colbreak()".to_string()),
+            effective_typst: Some("%%COLUMN_BREAK%%".to_string()),
             modifier_type: ModifierType::Block,
         },
         ResolvedModifier {
@@ -279,8 +279,8 @@ mod block_modifiers {
         let ctx = standard_context();
         let result = markdown_to_typst("Some text\n\n<!-- COLUMN_BREAK -->\n\nMore text", &ctx).unwrap();
         assert!(
-            result.contains("#colbreak()"),
-            "COLUMN_BREAK should resolve to #colbreak(), got: {}",
+            result.contains("%%COLUMN_BREAK%%"),
+            "COLUMN_BREAK should resolve to %%COLUMN_BREAK%% marker, got: {}",
             result
         );
     }

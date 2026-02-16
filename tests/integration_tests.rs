@@ -203,8 +203,8 @@ mod modifier_integration {
             typst
         );
         assert!(
-            !typst.contains("#colbreak()"),
-            "ignored column_break should not produce #colbreak(): {}",
+            !typst.contains("%%COLUMN_BREAK%%"),
+            "ignored column_break should not produce %%COLUMN_BREAK%%: {}",
             typst
         );
     }
@@ -229,8 +229,8 @@ mod modifier_integration {
             typst
         );
         assert!(
-            typst.contains("#colbreak()"),
-            "column_break should produce #colbreak(): {}",
+            typst.contains("%%COLUMN_BREAK%%"),
+            "column_break should produce %%COLUMN_BREAK%% marker: {}",
             typst
         );
     }

@@ -19,7 +19,7 @@ type = "inline"
 [column_break]
 marker = "<!-- COLUMN_BREAK -->"
 description = "Switch to the next column in a multi-column layout"
-typst = "#colbreak()"
+typst = "%%COLUMN_BREAK%%"
 on_ignore = "remove"
 type = "block"
 
