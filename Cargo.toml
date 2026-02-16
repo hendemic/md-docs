@@ -1,0 +1,31 @@
+[package]
+name = "md-docs"
+version = "0.1.0"
+edition = "2021"
+description = "Convert Markdown files into professional PDFs using Typst templates"
+license = "MIT"
+
+[dependencies]
+# Typst compilation
+typst-as-lib = { version = "0.15", features = ["typst-kit-fonts", "typst-kit-embed-fonts"] }
+typst-pdf = "0.14"
+
+# Markdown parsing
+pulldown-cmark = { version = "0.13", features = ["html"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+dialoguer = "0.12"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+serde_yml = "0.0.12"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Filesystem
+dirs = "6"
+tempfile = "3"

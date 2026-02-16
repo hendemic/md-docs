@@ -1,7 +1,7 @@
 # modifiers.toml
 # Defines all available content modifiers for md-docs.
 # Each modifier has a marker (what the user writes in markdown),
-# a LaTeX output (what it becomes), and an on_ignore behavior
+# a Typst output (what it becomes), and an on_ignore behavior
 # (what happens when a template lists it in its ignore field).
 #
 # on_ignore options:
@@ -12,48 +12,48 @@
 [date_separator]
 marker = " /| "
 description = "Inline left/right alignment (e.g., title on left, date on right)"
-latex = " \\hfill "
+typst = " #h(1fr) "
 on_ignore = "newline"
 type = "inline"
 
 [column_break]
 marker = "<!-- COLUMN_BREAK -->"
 description = "Switch to the next column in a multi-column layout"
-latex = "\\switchcolumn"
+typst = "#colbreak()"
 on_ignore = "remove"
 type = "block"
 
 [bottom_spacer]
 marker = "<!-- BOTTOM -->"
 description = "Push remaining content to the bottom of the page"
-latex = "\\vspace*{\\fill}"
+typst = "#v(1fr)"
 on_ignore = "remove"
 type = "block"
 
 [pagebreak]
 marker = "<!-- pagebreak -->"
 description = "Force a new page"
-latex = "\\newpage"
+typst = "#pagebreak()"
 on_ignore = "remove"
 type = "block"
 
 [clearpage]
 marker = "<!-- clearpage -->"
 description = "Clear the page including floats"
-latex = "\\clearpage"
+typst = "#pagebreak()"
 on_ignore = "remove"
 type = "block"
 
 [columnbreak]
 marker = "<!-- columnbreak -->"
 description = "Break to the next column within a multicols environment"
-latex = "\\columnbreak"
+typst = "#colbreak()"
 on_ignore = "remove"
 type = "block"
 
 [columns_start]
 marker = "<!-- COLUMNS_START -->"
 description = "Everything above this is full-width header; everything below enters the column layout"
-latex = "%%COLUMNS_START%%"
+typst = "%%COLUMNS_START%%"
 on_ignore = "remove"
 type = "block"
