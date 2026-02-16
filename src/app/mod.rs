@@ -235,9 +235,13 @@ impl AppController {
     }
 
     /// Install templates from a git repository URL.
-    pub fn install_templates(&self, repo_url: &str) -> anyhow::Result<()> {
-        println!("Installing templates from {}...", repo_url);
-        self.template_manager.install_repo(repo_url)?;
+    ///
+    /// Defaults to the official md-docs-templates repo if no URL is provided.
+    pub fn install_templates(&self, repo_url: Option<String>) -> anyhow::Result<()> {
+        const DEFAULT_REPO: &str = "https://github.com/hendemic/md-docs-templates.git";
+        let url = repo_url.as_deref().unwrap_or(DEFAULT_REPO);
+        println!("Installing templates from {}...", url);
+        self.template_manager.install_repo(url)?;
         println!("Templates installed successfully.");
         Ok(())
     }

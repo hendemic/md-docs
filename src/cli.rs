@@ -85,10 +85,11 @@ pub enum TemplateCommands {
     /// List all available templates with metadata.
     List,
 
-    /// Install templates from a git repository.
+    /// Install templates (defaults to official repo, or specify a custom URL).
     Install {
-        /// Git repository URL to clone.
-        repo_url: String,
+        /// Custom git repository URL. Uses the official repo if omitted.
+        #[arg(short, long)]
+        uri: Option<String>,
     },
 
     /// Update installed templates (git pull).
@@ -132,7 +133,7 @@ pub fn run() -> anyhow::Result<()> {
 
         Commands::Templates { action } => match action {
             TemplateCommands::List => controller.list_templates(),
-            TemplateCommands::Install { repo_url } => controller.install_templates(&repo_url),
+            TemplateCommands::Install { uri } => controller.install_templates(uri),
             TemplateCommands::Update { name } => controller.update_templates(name),
             TemplateCommands::Remove { name } => controller.remove_template(&name),
         },
