@@ -22,7 +22,19 @@ impl ConfigLoader {
     /// Returns the resolved `Config` with defaults filled in for any
     /// fields not specified by any config source.
     pub fn load() -> anyhow::Result<Config> {
-        todo!("Load defaults, merge global, merge project, return resolved Config")
+        let mut config = Self::defaults();
+
+        // Merge global config if it exists
+        if let Some(global) = Self::load_toml(&Self::global_config_path())? {
+            config = Self::merge(config, global);
+        }
+
+        // Merge project config if it exists
+        if let Some(project) = Self::load_toml(&Self::project_config_path())? {
+            config = Self::merge(config, project);
+        }
+
+        Ok(config)
     }
 
     /// Return the path to the global config file.
@@ -30,35 +42,56 @@ impl ConfigLoader {
     /// Uses `$XDG_CONFIG_HOME/md-docs/config.toml`, falling back to
     /// `$HOME/.config/md-docs/config.toml`.
     fn global_config_path() -> PathBuf {
-        todo!("Use dirs::config_dir() or env XDG_CONFIG_HOME, append md-docs/config.toml")
+        dirs::config_dir()
+            .unwrap_or_else(|| {
+                PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                    .join(".config")
+            })
+            .join("md-docs/config.toml")
     }
 
     /// Return the path to the project-level config file.
     ///
     /// Looks for `.md-docs.toml` in the current working directory.
     fn project_config_path() -> PathBuf {
-        todo!("Return current_dir() / .md-docs.toml")
+        std::env::current_dir()
+            .unwrap_or_else(|_| PathBuf::from("."))
+            .join(".md-docs.toml")
     }
 
     /// Load a TOML config file into a partial Config.
     ///
     /// Returns `Ok(None)` if the file doesn't exist.
     /// Returns `Err` if the file exists but is malformed.
-    fn load_toml(_path: &Path) -> anyhow::Result<Option<Config>> {
-        todo!("Read file if exists, deserialize with toml, return Some(Config) or None")
+    fn load_toml(path: &Path) -> anyhow::Result<Option<Config>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let contents = std::fs::read_to_string(path)?;
+        let config: Config = toml::from_str(&contents)?;
+        Ok(Some(config))
     }
 
     /// Merge a partial config on top of a base config.
     ///
     /// Only non-None fields in `overlay` replace the corresponding fields in `base`.
-    fn merge(_base: Config, _overlay: Config) -> Config {
-        todo!("For each field: if overlay field is Some, use it; otherwise keep base")
+    fn merge(base: Config, overlay: Config) -> Config {
+        Config {
+            default_template: overlay.default_template.or(base.default_template),
+            default_brand: overlay.default_brand.or(base.default_brand),
+            templates_dir: overlay.templates_dir.or(base.templates_dir),
+            brands_dir: overlay.brands_dir.or(base.brands_dir),
+            output_dir: overlay.output_dir.or(base.output_dir),
+            author: overlay.author.or(base.author),
+        }
     }
 
     /// Return the built-in default configuration.
     ///
-    /// Uses XDG base directories for templates and brands locations.
+    /// All fields are None -- the effective_* methods on Config provide
+    /// XDG-based fallbacks when no value is configured.
     fn defaults() -> Config {
-        todo!("Build Config with XDG_DATA_HOME/md-docs/templates and brands as defaults")
+        Config::default()
     }
 }

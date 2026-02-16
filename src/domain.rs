@@ -89,8 +89,12 @@ pub struct Document {
 
 impl Document {
     /// Create a new document from parsed frontmatter and raw markdown body.
-    pub fn new(_metadata: Metadata, _raw_body: String) -> Self {
-        todo!("Construct Document with empty sections; sections are populated after conversion")
+    pub fn new(metadata: Metadata, raw_body: String) -> Self {
+        Self {
+            metadata,
+            raw_body,
+            sections: ContentSections::default(),
+        }
     }
 }
 
@@ -122,8 +126,79 @@ impl Metadata {
     /// Returns the metadata and the remaining markdown content after the
     /// frontmatter block (`---` delimiters). The returned String is owned
     /// because the caller needs to store it independently of the input.
-    pub fn parse_from_content(_content: &str) -> Result<(Self, String), MdDocsError> {
-        todo!("Split content at --- delimiters, parse YAML into Metadata fields + extra map")
+    pub fn parse_from_content(content: &str) -> Result<(Self, String), MdDocsError> {
+        // Check if content starts with a frontmatter delimiter
+        if !content.starts_with("---\n") {
+            return Ok((Metadata::default(), content.to_string()));
+        }
+
+        // Find the closing delimiter (skip the opening "---\n")
+        let after_opening = &content[4..];
+        let closing_pos = match after_opening.find("\n---\n") {
+            Some(pos) => pos,
+            None => {
+                // Also check if the closing --- is at the very end of the file
+                if after_opening.ends_with("\n---") {
+                    after_opening.len() - 3
+                } else {
+                    // No closing delimiter found — treat as no frontmatter
+                    // (the opening "---" was likely a horizontal rule or similar)
+                    return Ok((Metadata::default(), content.to_string()));
+                }
+            }
+        };
+
+        let yaml_str = &after_opening[..closing_pos];
+        let remaining = if closing_pos + 4 < after_opening.len() {
+            // Skip past "\n---\n"
+            &after_opening[closing_pos + 5..]
+        } else if after_opening.ends_with("\n---") {
+            ""
+        } else {
+            &after_opening[closing_pos + 4..]
+        };
+
+        // Parse the YAML content as a Mapping
+        let mapping: serde_yml::Mapping = serde_yml::from_str(yaml_str)
+            .map_err(|e| MdDocsError::InvalidFrontmatter(e.to_string()))?;
+
+        // Extract well-known fields
+        let title = mapping
+            .get(serde_yml::Value::String("title".to_string()))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let author = mapping
+            .get(serde_yml::Value::String("author".to_string()))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        let date = mapping
+            .get(serde_yml::Value::String("date".to_string()))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // Collect remaining keys into extra
+        let mut extra = HashMap::new();
+        for (key, value) in &mapping {
+            if let Some(key_str) = key.as_str() {
+                match key_str {
+                    "title" | "author" | "date" => continue,
+                    _ => {
+                        extra.insert(key_str.to_string(), value.clone());
+                    }
+                }
+            }
+        }
+
+        let metadata = Metadata {
+            title,
+            author,
+            date,
+            extra,
+        };
+
+        Ok((metadata, remaining.to_string()))
     }
 }
 
@@ -151,8 +226,23 @@ impl ContentSections {
     /// If the marker is present, content above goes to `header` and below to `body`.
     /// If absent, everything goes to `body` and `header` is empty.
     /// `content` is always the full text.
-    pub fn from_typst_content(_typst_content: &str, _split_marker: &str) -> Self {
-        todo!("Split typst_content at split_marker into header/body, set content = full text")
+    pub fn from_typst_content(typst_content: &str, split_marker: &str) -> Self {
+        let content = typst_content.to_string();
+        if let Some(pos) = typst_content.find(split_marker) {
+            let header = typst_content[..pos].trim().to_string();
+            let body = typst_content[pos + split_marker.len()..].trim().to_string();
+            Self {
+                header,
+                body,
+                content,
+            }
+        } else {
+            Self {
+                header: String::new(),
+                body: content.clone(),
+                content,
+            }
+        }
     }
 }
 
@@ -240,8 +330,32 @@ pub type ModifierRegistry = HashMap<String, ModifierDef>;
 /// For each modifier, if the template ignores it, the effective output is
 /// determined by the modifier's `on_ignore` field. Otherwise the normal
 /// `typst` output is used.
-pub fn resolve_modifiers(_registry: &ModifierRegistry, _ignore_list: &[String]) -> Vec<ResolvedModifier> {
-    todo!("Iterate registry, check ignore_list membership, apply on_ignore logic, return resolved list")
+pub fn resolve_modifiers(registry: &ModifierRegistry, ignore_list: &[String]) -> Vec<ResolvedModifier> {
+    use std::collections::HashSet;
+
+    let ignored: HashSet<&str> = ignore_list.iter().map(|s| s.as_str()).collect();
+
+    registry
+        .iter()
+        .map(|(id, def)| {
+            let effective_typst = if ignored.contains(id.as_str()) {
+                match def.on_ignore {
+                    OnIgnore::Remove => Some(String::new()),
+                    OnIgnore::Newline => Some("\n".to_string()),
+                    OnIgnore::Keep => None,
+                }
+            } else {
+                Some(def.typst.clone())
+            };
+
+            ResolvedModifier {
+                id: id.clone(),
+                marker: def.marker.clone(),
+                effective_typst,
+                modifier_type: def.modifier_type,
+            }
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -337,33 +451,47 @@ impl fmt::Display for Brand {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Config {
     /// Default template name to use when none is specified.
-    default_template: Option<String>,
+    pub(crate) default_template: Option<String>,
 
     /// Default brand name to use when none is specified.
-    default_brand: Option<String>,
+    pub(crate) default_brand: Option<String>,
 
     /// Directory containing installed templates.
-    templates_dir: Option<PathBuf>,
+    pub(crate) templates_dir: Option<PathBuf>,
 
     /// Directory containing installed brands.
-    brands_dir: Option<PathBuf>,
+    pub(crate) brands_dir: Option<PathBuf>,
 
     /// Default output directory for generated PDFs.
-    output_dir: Option<PathBuf>,
+    pub(crate) output_dir: Option<PathBuf>,
 
     /// Default author name injected into metadata when frontmatter doesn't specify one.
-    author: Option<String>,
+    pub(crate) author: Option<String>,
 }
 
 impl Config {
     /// Return the effective templates directory, falling back to the XDG data default.
     pub fn effective_templates_dir(&self) -> PathBuf {
-        todo!("Return self.templates_dir if set, otherwise XDG_DATA_HOME/md-docs/templates")
+        self.templates_dir.clone().unwrap_or_else(|| {
+            dirs::data_dir()
+                .unwrap_or_else(|| {
+                    PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                        .join(".local/share")
+                })
+                .join("md-docs/templates")
+        })
     }
 
     /// Return the effective brands directory, falling back to the XDG data default.
     pub fn effective_brands_dir(&self) -> PathBuf {
-        todo!("Return self.brands_dir if set, otherwise XDG_DATA_HOME/md-docs/brands")
+        self.brands_dir.clone().unwrap_or_else(|| {
+            dirs::data_dir()
+                .unwrap_or_else(|| {
+                    PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                        .join(".local/share")
+                })
+                .join("md-docs/brands")
+        })
     }
 
     /// Return the configured default template name, if any.
@@ -402,7 +530,7 @@ impl Config {
 // ---------------------------------------------------------------------------
 
 /// Characters that have special meaning in Typst markup mode and may need escaping.
-const _TYPST_SPECIAL_CHARS: &[char] = &[
+const TYPST_SPECIAL_CHARS: &[char] = &[
     '*', '_', '`', '<', '@', '=', '#', '$', '~', '\\', '/', '+', '-',
 ];
 
@@ -414,8 +542,15 @@ const _TYPST_SPECIAL_CHARS: &[char] = &[
 /// Note: Context matters -- not all occurrences need escaping. This function
 /// is conservative and escapes all potential special characters. The builder
 /// should refine this based on integration testing.
-pub fn escape_typst(_text: &str) -> String {
-    todo!("Iterate chars, prefix _TYPST_SPECIAL_CHARS with backslash")
+pub fn escape_typst(text: &str) -> String {
+    let mut result = String::with_capacity(text.len() * 2);
+    for ch in text.chars() {
+        if TYPST_SPECIAL_CHARS.contains(&ch) {
+            result.push('\\');
+        }
+        result.push(ch);
+    }
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -438,7 +573,24 @@ pub struct ConversionContext {
 
 impl ConversionContext {
     /// Build a conversion context from a list of resolved modifiers.
-    pub fn from_resolved(_modifiers: &[ResolvedModifier]) -> Self {
-        todo!("Partition modifiers into block_modifiers map and inline_modifiers vec")
+    pub fn from_resolved(modifiers: &[ResolvedModifier]) -> Self {
+        let mut block_modifiers = HashMap::new();
+        let mut inline_modifiers = Vec::new();
+
+        for m in modifiers {
+            match m.modifier_type {
+                ModifierType::Block => {
+                    block_modifiers.insert(m.marker.clone(), m.effective_typst.clone());
+                }
+                ModifierType::Inline => {
+                    inline_modifiers.push(m.clone());
+                }
+            }
+        }
+
+        Self {
+            block_modifiers,
+            inline_modifiers,
+        }
     }
 }

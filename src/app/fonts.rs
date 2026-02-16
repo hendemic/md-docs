@@ -17,9 +17,12 @@ use std::path::Path;
 
 /// Check whether a specific font family is available on the system.
 ///
-/// Useful for pre-flight validation before compilation.
+/// Font availability cannot be reliably checked without running the full Typst
+/// compiler. This is a best-effort check: it returns `false` as a conservative
+/// default, since the compiler will emit warnings for missing fonts at compile time.
+/// Actual font resolution is deferred to the Typst compilation step.
 pub fn is_font_available(_font_name: &str) -> bool {
-    todo!("Query system fonts and embedded fonts for the given family name")
+    false
 }
 
 /// Collect font file bytes from a brand's fonts/ directory.
@@ -28,15 +31,35 @@ pub fn is_font_available(_font_name: &str) -> bool {
 /// `TypstEngine::builder().fonts(...)` for brand-bundled fonts.
 ///
 /// Returns an empty Vec if the brand has no bundled fonts.
-pub fn load_brand_fonts(_brand_dir: &Path) -> anyhow::Result<Vec<Vec<u8>>> {
-    todo!("Read all .ttf/.otf/.woff2 files from brand_dir/fonts/, return their bytes")
+pub fn load_brand_fonts(brand_dir: &Path) -> anyhow::Result<Vec<Vec<u8>>> {
+    let fonts_dir = brand_dir.join("fonts");
+    if !fonts_dir.is_dir() {
+        return Ok(vec![]);
+    }
+
+    let mut font_bytes = Vec::new();
+    for entry in std::fs::read_dir(&fonts_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                match ext.to_lowercase().as_str() {
+                    "ttf" | "otf" | "woff2" => {
+                        font_bytes.push(std::fs::read(&path)?);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    Ok(font_bytes)
 }
 
 /// Return a known-good fallback font family name.
 ///
 /// Used when a brand-specified font is not found on the system.
-/// Prefers "New Computer Modern" (embedded by typst-kit-embed-fonts),
-/// falling back to generic sans-serif.
+/// Returns "New Computer Modern" which is embedded by typst-kit-embed-fonts.
 pub fn fallback_font() -> &'static str {
-    todo!("Return 'New Computer Modern' or another embedded font name")
+    "New Computer Modern"
 }

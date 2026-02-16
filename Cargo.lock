@@ -1481,6 +1481,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "toml",
+ "typst",
  "typst-as-lib",
  "typst-pdf",
 ]

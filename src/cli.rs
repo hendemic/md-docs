@@ -106,45 +106,29 @@ pub fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     // Build the app controller with layered config
-    let _controller = AppController::new()?;
+    let controller = AppController::new()?;
 
     match cli.command {
         Commands::Convert {
-            file: _file,
-            template: _template,
-            brand: _brand,
-            output: _output,
-        } => {
-            todo!("Call controller.convert(file, template, brand, output)")
-        }
+            file,
+            template,
+            brand,
+            output,
+        } => controller.convert(file, template, brand, output),
 
         Commands::Templates { action } => match action {
-            TemplateCommands::List => {
-                todo!("Call controller.list_templates() and print results")
-            }
-            TemplateCommands::Install { repo_url: _repo_url } => {
-                todo!("Call controller.install_templates(repo_url)")
-            }
-            TemplateCommands::Update { name: _name } => {
-                todo!("Call controller.update_templates(name)")
-            }
-            TemplateCommands::Remove { name: _name } => {
-                todo!("Call controller.remove_template(name)")
-            }
+            TemplateCommands::List => controller.list_templates(),
+            TemplateCommands::Install { repo_url } => controller.install_templates(&repo_url),
+            TemplateCommands::Update { name } => controller.update_templates(name),
+            TemplateCommands::Remove { name } => controller.remove_template(&name),
         },
 
         Commands::Brands { action } => match action {
-            BrandCommands::List => {
-                todo!("Call controller.list_brands() and print results")
-            }
+            BrandCommands::List => controller.list_brands(),
         },
 
-        Commands::Config => {
-            todo!("Call controller.show_config() and print the resolved config")
-        }
+        Commands::Config => controller.show_config(),
 
-        Commands::Init => {
-            todo!("Call controller.init_project() to create .md-docs.toml in cwd")
-        }
+        Commands::Init => controller.init_project(),
     }
 }
