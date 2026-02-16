@@ -58,19 +58,17 @@ mod modifier_loading {
         assert!(result.is_ok(), "load_modifiers should succeed: {:?}", result.err());
         let registry = result.unwrap();
 
-        // Should have all 7 modifiers defined in modifiers.toml
+        // Should have all 5 modifiers defined in modifiers.toml
         assert!(
-            registry.len() >= 7,
-            "should have at least 7 modifiers, got {}",
+            registry.len() >= 5,
+            "should have at least 5 modifiers, got {}",
             registry.len()
         );
         assert!(registry.contains_key("date_separator"));
-        assert!(registry.contains_key("column_break"));
-        assert!(registry.contains_key("bottom_spacer"));
-        assert!(registry.contains_key("pagebreak"));
-        assert!(registry.contains_key("clearpage"));
-        assert!(registry.contains_key("columnbreak"));
         assert!(registry.contains_key("columns_start"));
+        assert!(registry.contains_key("column_break"));
+        assert!(registry.contains_key("page_break"));
+        assert!(registry.contains_key("bottom_spacer"));
     }
 
     #[test]

@@ -16,6 +16,13 @@ typst = " #h(1fr) "
 on_ignore = "newline"
 type = "inline"
 
+[columns_start]
+marker = "<!-- COLUMNS_START -->"
+description = "Everything above this is full-width header; everything below enters the column layout"
+typst = "%%COLUMNS_START%%"
+on_ignore = "remove"
+type = "block"
+
 [column_break]
 marker = "<!-- COLUMN_BREAK -->"
 description = "Switch to the next column in a multi-column layout"
@@ -23,37 +30,16 @@ typst = "%%COLUMN_BREAK%%"
 on_ignore = "remove"
 type = "block"
 
-[bottom_spacer]
-marker = "<!-- BOTTOM -->"
-description = "Push remaining content to the bottom of the page"
-typst = "#v(1fr)"
-on_ignore = "remove"
-type = "block"
-
-[pagebreak]
-marker = "<!-- pagebreak -->"
+[page_break]
+marker = "<!-- PAGEBREAK -->"
 description = "Force a new page"
 typst = "#pagebreak()"
 on_ignore = "remove"
 type = "block"
 
-[clearpage]
-marker = "<!-- clearpage -->"
-description = "Clear the page including floats"
-typst = "#pagebreak()"
-on_ignore = "remove"
-type = "block"
-
-[columnbreak]
-marker = "<!-- columnbreak -->"
-description = "Break to the next column within a multicols environment"
-typst = "#colbreak()"
-on_ignore = "remove"
-type = "block"
-
-[columns_start]
-marker = "<!-- COLUMNS_START -->"
-description = "Everything above this is full-width header; everything below enters the column layout"
-typst = "%%COLUMNS_START%%"
+[bottom_spacer]
+marker = "<!-- BOTTOM -->"
+description = "Push remaining content to the bottom of the page"
+typst = "#v(1fr)"
 on_ignore = "remove"
 type = "block"

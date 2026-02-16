@@ -61,3 +61,14 @@ Options:
 - `-v, --verbose` — Enable verbose output
 - `-h, --help` — Print help
 - `-V, --version` — Print version
+
+## Modifiers
+Modifiers are special markers you can place in your markdown to control layout. Not all templates support every modifier — unsupported ones are either removed or replaced depending on the template. See `modifiers.toml` for the full list.
+
+```
+<!-- COLUMNS_START -->    Split content into header (above) and columns (below)
+<!-- COLUMN_BREAK -->     Switch to the next column
+<!-- PAGEBREAK -->        Force a new page
+<!-- BOTTOM -->           Push remaining content to the bottom of the page
+ /|                       Inline left/right alignment (e.g., title /| date)
+```
