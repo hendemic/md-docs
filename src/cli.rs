@@ -118,7 +118,12 @@ pub enum BrandCommands {
 /// It builds an `AppController` with the resolved config, then dispatches
 /// the parsed command to the appropriate controller method.
 pub fn run() -> anyhow::Result<()> {
-    let cli = Cli::parse();
+    // If the first arg looks like a markdown file, default to `convert`
+    let mut args: Vec<String> = std::env::args().collect();
+    if args.len() >= 2 && args[1].ends_with(".md") {
+        args.insert(1, "convert".to_string());
+    }
+    let cli = Cli::parse_from(args);
 
     // Build the app controller with layered config
     let controller = AppController::new()?;

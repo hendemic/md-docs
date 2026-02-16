@@ -333,7 +333,7 @@ impl TemplateManager {
         }
 
         // Sync templates and brands from cache to data directories
-        self.sync_from_cache(&cache_dir)?;
+        Self::sync_from_cache(&cache_dir)?;
 
         Ok(())
     }
@@ -367,17 +367,18 @@ impl TemplateManager {
         }
 
         // Re-sync from cache
-        self.sync_from_cache(&cache_dir)?;
+        Self::sync_from_cache(&cache_dir)?;
 
         Ok(())
     }
 
-    /// Remove a template by name.
+    /// Remove an installed template by name.
     ///
-    /// Only removes templates that were installed from a repository.
-    /// Returns an error if the template was user-added (not from a repo).
+    /// Removes from the default install directory, not the config-resolved
+    /// directory. Only removes templates that were installed from a repository.
     pub fn remove_template(&self, name: &str) -> anyhow::Result<()> {
-        let template_dir = self.templates_dir.join(name);
+        let install_dir = Self::default_templates_dir();
+        let template_dir = install_dir.join(name);
 
         if !template_dir.is_dir() {
             return Err(MdDocsError::TemplateNotFound(name.to_string()).into());
@@ -404,14 +405,44 @@ impl TemplateManager {
             .join("md-docs/repos")
     }
 
-    /// Sync templates and brands from the cached repository to data directories.
-    fn sync_from_cache(&self, cache_dir: &Path) -> anyhow::Result<()> {
+    /// Return the default install directory for templates.
+    ///
+    /// Always uses the XDG data directory, ignoring config overrides.
+    /// This ensures `install` and `remove` always target the standard
+    /// location, even when a dev config overrides `templates_dir`.
+    fn default_templates_dir() -> PathBuf {
+        dirs::data_dir()
+            .unwrap_or_else(|| {
+                PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                    .join(".local/share")
+            })
+            .join("md-docs/templates")
+    }
+
+    /// Return the default install directory for brands.
+    fn default_brands_dir() -> PathBuf {
+        dirs::data_dir()
+            .unwrap_or_else(|| {
+                PathBuf::from(std::env::var("HOME").unwrap_or_default())
+                    .join(".local/share")
+            })
+            .join("md-docs/brands")
+    }
+
+    /// Sync templates and brands from the cached repository to the
+    /// default install directories.
+    ///
+    /// Always installs to the XDG data paths, regardless of config
+    /// overrides, so that dev environments don't interfere with installs.
+    fn sync_from_cache(cache_dir: &Path) -> anyhow::Result<()> {
+        let templates_dst = Self::default_templates_dir();
+        let brands_dst = Self::default_brands_dir();
         let templates_src = cache_dir.join("templates");
         let brands_src = cache_dir.join("brands");
 
         // Ensure destination directories exist
-        std::fs::create_dir_all(&self.templates_dir)?;
-        std::fs::create_dir_all(&self.brands_dir)?;
+        std::fs::create_dir_all(&templates_dst)?;
+        std::fs::create_dir_all(&brands_dst)?;
 
         // Copy templates
         if templates_src.is_dir() {
@@ -424,7 +455,7 @@ impl TemplateManager {
                         .and_then(|n| n.to_str())
                         .map_or(true, |n| n.starts_with('.'))
                 {
-                    let dst = self.templates_dir.join(path.file_name().unwrap());
+                    let dst = templates_dst.join(path.file_name().unwrap());
                     if dst.exists() {
                         std::fs::remove_dir_all(&dst)?;
                     }
@@ -444,7 +475,7 @@ impl TemplateManager {
                         .and_then(|n| n.to_str())
                         .map_or(true, |n| n.starts_with('.'))
                 {
-                    let dst = self.brands_dir.join(path.file_name().unwrap());
+                    let dst = brands_dst.join(path.file_name().unwrap());
                     if dst.exists() {
                         std::fs::remove_dir_all(&dst)?;
                     }
