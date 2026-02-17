@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use md_docs::app::compiler;
+use md_docs::infra::compiler;
 use md_docs::domain::{
     Brand, BrandMetadata, ContentSections, Document, Metadata, Template, TemplateMetadata,
     TemplateSource,

@@ -1,6 +1,6 @@
-use super::config::ConfigLoader;
-use super::fonts;
-use super::logger::FileLogger;
+use super::system::ConfigLoader;
+use super::templates;  // fonts merged into templates
+use super::system::FileLogger;
 use super::updater;
 use crate::domain::{CliMessage, Config};
 
@@ -314,7 +314,7 @@ mod fallback {
     #[test]
     fn test_fallback_font_returns_known_font_name() {
         // Execute
-        let name = fonts::fallback_font();
+        let name = templates::fallback_font();
 
         // Assert -- should return a non-empty known font name
         assert!(!name.is_empty(), "fallback font name should not be empty");
@@ -331,8 +331,8 @@ mod fallback {
     #[test]
     fn test_fallback_font_is_stable() {
         // Execute -- call twice, should return the same value
-        let first = fonts::fallback_font();
-        let second = fonts::fallback_font();
+        let first = templates::fallback_font();
+        let second = templates::fallback_font();
 
         // Assert
         assert_eq!(first, second, "fallback font should be deterministic");
@@ -352,7 +352,7 @@ mod brand_fonts {
         let temp_dir = tempfile::tempdir().unwrap();
 
         // Execute
-        let result = fonts::load_brand_fonts(temp_dir.path());
+        let result = templates::load_brand_fonts(temp_dir.path());
 
         // Assert
         assert!(result.is_ok());
@@ -370,7 +370,7 @@ mod brand_fonts {
         std::fs::create_dir(temp_dir.path().join("fonts")).unwrap();
 
         // Execute
-        let result = fonts::load_brand_fonts(temp_dir.path());
+        let result = templates::load_brand_fonts(temp_dir.path());
 
         // Assert
         assert!(result.is_ok());
@@ -391,7 +391,7 @@ mod brand_fonts {
         std::fs::write(fonts_dir.join("config.json"), "{}").unwrap();
 
         // Execute
-        let result = fonts::load_brand_fonts(temp_dir.path());
+        let result = templates::load_brand_fonts(temp_dir.path());
 
         // Assert
         assert!(result.is_ok());
@@ -413,7 +413,7 @@ mod brand_fonts {
         std::fs::write(fonts_dir.join("test.ttf"), &fake_font_data).unwrap();
 
         // Execute
-        let result = fonts::load_brand_fonts(temp_dir.path());
+        let result = templates::load_brand_fonts(temp_dir.path());
 
         // Assert
         assert!(result.is_ok());
@@ -431,7 +431,7 @@ mod brand_fonts {
         std::fs::write(fonts_dir.join("test.otf"), vec![1u8; 50]).unwrap();
 
         // Execute
-        let result = fonts::load_brand_fonts(temp_dir.path());
+        let result = templates::load_brand_fonts(temp_dir.path());
 
         // Assert
         assert!(result.is_ok());
@@ -450,7 +450,7 @@ mod font_availability {
     #[test]
     #[ignore] // Requires typst font discovery implementation
     fn test_embedded_font_is_available() {
-        let result = fonts::is_font_available("New Computer Modern");
+        let result = templates::is_font_available("New Computer Modern");
         assert!(
             result,
             "New Computer Modern should be available via embedded fonts"
@@ -459,7 +459,7 @@ mod font_availability {
 
     #[test]
     fn test_nonexistent_font_is_not_available() {
-        let result = fonts::is_font_available("Definitely Not A Real Font Name 12345");
+        let result = templates::is_font_available("Definitely Not A Real Font Name 12345");
         assert!(
             !result,
             "nonexistent font should not be available"
@@ -912,7 +912,7 @@ mod log_rotation {
 // =========================================================================
 
 mod xdg_paths {
-    use crate::infra::config::{xdg_config_home, xdg_data_home};
+    use crate::infra::system::{xdg_config_home, xdg_data_home};
     use std::sync::Mutex;
 
     /// Mutex to serialize env-var-mutating tests. Rust tests run in parallel

@@ -7,15 +7,13 @@
 //! # Module dependency graph
 //! ```text
 //! app/mod.rs  (AppController)
-//!   |-- app/compiler.rs      (compile, assemble, generate)
 //!   |-- app/converter.rs     (markdown_to_typst)
-//!   |-- infra/config.rs      (ConfigLoader)
-//!   |-- infra/templates.rs   (TemplateManager, load_modifiers)
-//!   |-- infra/fonts.rs       (is_font_available, load_brand_fonts, fallback_font)
-//!   +-- domain.rs            (all types)
+//!   |-- infra/compiler.rs    (compile, assemble, generate)
+//!   |-- infra/system.rs      (ConfigLoader, FileLogger)
+//!   |-- infra/templates.rs   (TemplateManager, load_modifiers, font loading)
+//!   +-- domain/              (all types)
 //! ```
 
-pub mod compiler;
 pub mod converter;
 
 use std::path::{Path, PathBuf};
@@ -27,9 +25,80 @@ use crate::domain::{
     Template, resolve_modifiers,
 };
 
-use crate::infra::config::ConfigLoader;
-use crate::infra::logger::FileLogger;
+use crate::infra::system::ConfigLoader;
+use crate::infra::system::FileLogger;
 use crate::infra::templates::TemplateManager;
+
+// ---------------------------------------------------------------------------
+// Colored formatting for domain types (presentation concern, not domain logic)
+// ---------------------------------------------------------------------------
+
+impl CliMessage {
+    /// Format this message with colors and prefix for terminal display.
+    pub fn formatted(&self) -> String {
+        match self {
+            CliMessage::Success(msg) => format!("{} {}", "✓".green().bold(), msg),
+            CliMessage::Info(msg) => format!("{}", msg.cyan()),
+            CliMessage::Log(msg) => format!("{}", msg.dimmed()),
+            CliMessage::Warning(msg) => format!("{} {}", "warning:".yellow().bold(), msg),
+            CliMessage::Error(msg) => format!("{} {}", "error:".red().bold(), msg),
+            CliMessage::Plain(msg) => msg.clone(),
+        }
+    }
+
+    /// Print this message to the appropriate stream (stdout or stderr).
+    pub fn print(&self, verbose: bool) {
+        match self {
+            CliMessage::Log(_) => {
+                if verbose {
+                    println!("{}", self.formatted());
+                }
+            }
+            CliMessage::Warning(_) | CliMessage::Error(_) => {
+                eprintln!("{}", self.formatted());
+            }
+            _ => {
+                println!("{}", self.formatted());
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for CliMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.formatted())
+    }
+}
+
+impl Template {
+    /// Format for colored terminal selector output.
+    pub fn colored_display(&self) -> String {
+        match &self.metadata.description {
+            Some(desc) => format!(
+                "{} ({}) -- {}",
+                self.metadata.name.cyan(),
+                self.id.bold(),
+                desc.dimmed()
+            ),
+            None => format!("{} ({})", self.metadata.name.cyan(), self.id.bold()),
+        }
+    }
+}
+
+impl Brand {
+    /// Format for colored terminal selector output.
+    pub fn colored_display(&self) -> String {
+        match &self.metadata.description {
+            Some(desc) => format!(
+                "{} ({}) -- {}",
+                self.metadata.name.cyan(),
+                self.id.bold(),
+                desc.dimmed()
+            ),
+            None => format!("{} ({})", self.metadata.name.cyan(), self.id.bold()),
+        }
+    }
+}
 
 /// Central application controller.
 ///
@@ -141,7 +210,7 @@ impl AppController {
             "Compiling {} with template '{}' and brand '{}'...",
             input.display(), template.id, brand.id
         )));
-        let result = compiler::compile(&document, &template, &brand, &output_path)?;
+        let result = crate::infra::compiler::compile(&document, &template, &brand, &output_path)?;
         for w in &result.warnings {
             self.emit(CliMessage::Warning(format!("typst: {}", w)));
         }
@@ -441,7 +510,7 @@ impl AppController {
 
         if !self.config.repos().is_empty() {
             self.emit(CliMessage::Plain(format!("\n  {}:", "Repos".bold())));
-            let repos_base = crate::infra::config::xdg_data_home().join("md-docs/repos");
+            let repos_base = crate::infra::system::xdg_data_home().join("md-docs/repos");
             for repo in self.config.repos() {
                 let installed = repos_base.join(&repo.name).join(".git").is_dir();
                 let status = if installed { "installed" } else { "not installed" };

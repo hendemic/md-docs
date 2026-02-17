@@ -1,8 +1,8 @@
-//! Template and brand discovery, metadata parsing, and repository management.
+//! Template and brand discovery, metadata parsing, font loading, and repository management.
 //!
 //! Scans all configured sources (local directories and git repos) for templates
-//! and brands, reads their metadata, loads the modifier registry, and handles
-//! git-based install/update operations.
+//! and brands, reads their metadata, loads the modifier registry, discovers
+//! brand-bundled fonts, and handles git-based install/update operations.
 //!
 //! Sources are scanned in precedence order: local directories first, then repos.
 //! When the same template/brand ID appears in multiple sources, the first wins.
@@ -97,7 +97,7 @@ impl TemplateManager {
     /// Return the base directory for cloned repositories.
     /// `~/.local/share/md-docs/repos/`
     fn repos_base_dir() -> PathBuf {
-        super::config::xdg_data_home().join("md-docs/repos")
+        super::system::xdg_data_home().join("md-docs/repos")
     }
 
     /// Return the clone path for a named repo.
@@ -463,4 +463,57 @@ impl TemplateManager {
         }
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------
+// Font discovery and loading
+// ---------------------------------------------------------------------------
+
+/// Check whether a specific font family is available on the system.
+///
+/// Font availability cannot be reliably checked without running the full Typst
+/// compiler. This is a best-effort check: it returns `false` as a conservative
+/// default, since the compiler will emit warnings for missing fonts at compile time.
+/// Actual font resolution is deferred to the Typst compilation step.
+pub fn is_font_available(_font_name: &str) -> bool {
+    false
+}
+
+/// Collect font file bytes from a brand's fonts/ directory.
+///
+/// Returns a vector of font file contents that can be passed to
+/// `TypstEngine::builder().fonts(...)` for brand-bundled fonts.
+///
+/// Returns an empty Vec if the brand has no bundled fonts.
+pub fn load_brand_fonts(brand_dir: &Path) -> anyhow::Result<Vec<Vec<u8>>> {
+    let fonts_dir = brand_dir.join("fonts");
+    if !fonts_dir.is_dir() {
+        return Ok(vec![]);
+    }
+
+    let mut font_bytes = Vec::new();
+    for entry in std::fs::read_dir(&fonts_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                match ext.to_lowercase().as_str() {
+                    "ttf" | "otf" | "woff2" => {
+                        font_bytes.push(std::fs::read(&path)?);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    Ok(font_bytes)
+}
+
+/// Return a known-good fallback font family name.
+///
+/// Used when a brand-specified font is not found on the system.
+/// Returns "New Computer Modern" which is embedded by typst-kit-embed-fonts.
+pub fn fallback_font() -> &'static str {
+    "New Computer Modern"
 }

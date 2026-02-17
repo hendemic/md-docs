@@ -16,7 +16,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use colored::Colorize;
 use serde::Deserialize;
 
 // ---------------------------------------------------------------------------
@@ -490,22 +489,6 @@ impl fmt::Display for Template {
     }
 }
 
-impl Template {
-    /// Format for colored terminal selector output.
-    /// Cyan name, bold id, dimmed description.
-    pub fn colored_display(&self) -> String {
-        match &self.metadata.description {
-            Some(desc) => format!(
-                "{} ({}) -- {}",
-                self.metadata.name.cyan(),
-                self.id.bold(),
-                desc.dimmed()
-            ),
-            None => format!("{} ({})", self.metadata.name.cyan(), self.id.bold()),
-        }
-    }
-}
-
 /// Metadata for a brand, loaded from `metadata.toml` in the brand directory.
 #[derive(Debug, Clone, Deserialize)]
 pub struct BrandMetadata {
@@ -537,21 +520,6 @@ impl fmt::Display for Brand {
         match &self.metadata.description {
             Some(desc) => write!(f, "{} ({}) -- {}", self.metadata.name, self.id, desc),
             None => write!(f, "{} ({})", self.metadata.name, self.id),
-        }
-    }
-}
-
-impl Brand {
-    /// Format for colored terminal selector output.
-    pub fn colored_display(&self) -> String {
-        match &self.metadata.description {
-            Some(desc) => format!(
-                "{} ({}) -- {}",
-                self.metadata.name.cyan(),
-                self.id.bold(),
-                desc.dimmed()
-            ),
-            None => format!("{} ({})", self.metadata.name.cyan(), self.id.bold()),
         }
     }
 }
@@ -726,46 +694,6 @@ pub enum CliMessage {
 
     /// Pre-formatted output. Printed to stdout as-is, no additional coloring.
     Plain(String),
-}
-
-impl CliMessage {
-    /// Format this message with colors and prefix for terminal display.
-    pub fn formatted(&self) -> String {
-        match self {
-            CliMessage::Success(msg) => format!("{} {}", "✓".green().bold(), msg),
-            CliMessage::Info(msg) => format!("{}", msg.cyan()),
-            CliMessage::Log(msg) => format!("{}", msg.dimmed()),
-            CliMessage::Warning(msg) => format!("{} {}", "warning:".yellow().bold(), msg),
-            CliMessage::Error(msg) => format!("{} {}", "error:".red().bold(), msg),
-            CliMessage::Plain(msg) => msg.clone(),
-        }
-    }
-
-    /// Print this message to the appropriate stream (stdout or stderr).
-    ///
-    /// `Log` messages are only printed when `verbose` is true.
-    /// All other variants always print.
-    pub fn print(&self, verbose: bool) {
-        match self {
-            CliMessage::Log(_) => {
-                if verbose {
-                    println!("{}", self.formatted());
-                }
-            }
-            CliMessage::Warning(_) | CliMessage::Error(_) => {
-                eprintln!("{}", self.formatted());
-            }
-            _ => {
-                println!("{}", self.formatted());
-            }
-        }
-    }
-}
-
-impl std::fmt::Display for CliMessage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.formatted())
-    }
 }
 
 #[cfg(test)]
