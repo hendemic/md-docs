@@ -722,3 +722,328 @@ mod updater_integration {
         );
     }
 }
+
+// =========================================================================
+// Log Rotation
+// =========================================================================
+
+mod log_rotation {
+    use super::*;
+    use std::fs;
+
+    fn temp_log_path() -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.log");
+        (dir, path)
+    }
+
+    /// Create a file at `path` filled with `size` bytes of repeated content,
+    /// prefixed by `tag` so we can identify the file after rotation.
+    fn create_tagged_file(path: &std::path::Path, tag: &str, size: usize) {
+        let mut content = format!("{}\n", tag);
+        while content.len() < size {
+            content.push_str("PADDING_LINE_TO_FILL_LOG_FILE\n");
+        }
+        content.truncate(size);
+        fs::write(path, content).unwrap();
+    }
+
+    /// Read the first line of a file (the tag).
+    fn read_tag(path: &std::path::Path) -> String {
+        let content = fs::read_to_string(path).unwrap();
+        content.lines().next().unwrap_or("").to_string()
+    }
+
+    #[test]
+    fn test_no_rotation_when_under_limit() {
+        // Setup -- create a small log file well under 1MB
+        let (_dir, path) = temp_log_path();
+        fs::write(&path, "small log content\n").unwrap();
+        let backup_path = format!("{}.1", path.display());
+
+        // Execute -- constructing the logger triggers rotate_if_needed
+        let _logger = FileLogger::with_path(path.clone());
+
+        // Assert -- no backup should have been created
+        assert!(
+            !std::path::Path::new(&backup_path).exists(),
+            "no .log.1 backup should exist for a file under 1MB"
+        );
+        // Original file should still exist (unchanged)
+        assert!(path.exists(), "original log file should still exist");
+    }
+
+    #[test]
+    fn test_rotation_creates_backup() {
+        // Setup -- create a log file exceeding 1MB
+        let (_dir, path) = temp_log_path();
+        let over_1mb = 1_048_576 + 1024; // slightly over the limit
+        create_tagged_file(&path, "ORIGINAL_LOG", over_1mb);
+        let backup_path_1 = format!("{}.1", path.display());
+
+        // Execute -- constructing the logger triggers rotation
+        let logger = FileLogger::with_path(path.clone());
+
+        // Assert -- the original content should now be in .log.1
+        assert!(
+            std::path::Path::new(&backup_path_1).exists(),
+            ".log.1 backup should exist after rotation"
+        );
+        let backup_tag = read_tag(std::path::Path::new(&backup_path_1));
+        assert_eq!(
+            backup_tag, "ORIGINAL_LOG",
+            "backup .log.1 should contain the original log content"
+        );
+
+        // A new write should go to the fresh .log file (not the backup)
+        logger.log("INFO", "fresh entry");
+        assert!(path.exists(), "fresh .log file should exist after write");
+        let fresh_content = fs::read_to_string(&path).unwrap();
+        assert!(
+            fresh_content.contains("fresh entry"),
+            "new .log should contain the fresh entry"
+        );
+        assert!(
+            !fresh_content.contains("ORIGINAL_LOG"),
+            "new .log should not contain old content"
+        );
+    }
+
+    #[test]
+    fn test_rotation_shifts_existing_backups() {
+        // Setup -- create .log (> 1MB), .log.1, and .log.2 with known tags
+        let (_dir, path) = temp_log_path();
+        let over_1mb = 1_048_576 + 1024;
+        create_tagged_file(&path, "CURRENT_LOG", over_1mb);
+
+        let backup_1 = format!("{}.1", path.display());
+        let backup_2 = format!("{}.2", path.display());
+        let backup_3 = format!("{}.3", path.display());
+        fs::write(&backup_1, "BACKUP_ONE\n").unwrap();
+        fs::write(&backup_2, "BACKUP_TWO\n").unwrap();
+
+        // Execute
+        let _logger = FileLogger::with_path(path.clone());
+
+        // Assert -- chain should have shifted:
+        // old .log      -> .log.1
+        // old .log.1    -> .log.2
+        // old .log.2    -> .log.3
+        let tag_1 = read_tag(std::path::Path::new(&backup_1));
+        assert_eq!(
+            tag_1, "CURRENT_LOG",
+            ".log.1 should now contain what was in .log"
+        );
+
+        let tag_2 = read_tag(std::path::Path::new(&backup_2));
+        assert_eq!(
+            tag_2, "BACKUP_ONE",
+            ".log.2 should now contain what was in .log.1"
+        );
+
+        let tag_3 = read_tag(std::path::Path::new(&backup_3));
+        assert_eq!(
+            tag_3, "BACKUP_TWO",
+            ".log.3 should now contain what was in .log.2"
+        );
+    }
+
+    #[test]
+    fn test_rotation_deletes_oldest_beyond_limit() {
+        // Setup -- create .log (> 1MB), .log.1, .log.2, .log.3 with known tags
+        let (_dir, path) = temp_log_path();
+        let over_1mb = 1_048_576 + 1024;
+        create_tagged_file(&path, "CURRENT_LOG", over_1mb);
+
+        let backup_1 = format!("{}.1", path.display());
+        let backup_2 = format!("{}.2", path.display());
+        let backup_3 = format!("{}.3", path.display());
+        fs::write(&backup_1, "BACKUP_ONE\n").unwrap();
+        fs::write(&backup_2, "BACKUP_TWO\n").unwrap();
+        fs::write(&backup_3, "BACKUP_THREE_OLDEST\n").unwrap();
+
+        // Execute
+        let _logger = FileLogger::with_path(path.clone());
+
+        // Assert -- the chain should have shifted, and the oldest content is gone:
+        // old .log      -> .log.1
+        // old .log.1    -> .log.2
+        // old .log.2    -> .log.3 (overwrites old .log.3 which is discarded)
+        let tag_1 = read_tag(std::path::Path::new(&backup_1));
+        assert_eq!(
+            tag_1, "CURRENT_LOG",
+            ".log.1 should now contain what was in .log"
+        );
+
+        let tag_2 = read_tag(std::path::Path::new(&backup_2));
+        assert_eq!(
+            tag_2, "BACKUP_ONE",
+            ".log.2 should now contain what was in .log.1"
+        );
+
+        let tag_3 = read_tag(std::path::Path::new(&backup_3));
+        assert_eq!(
+            tag_3, "BACKUP_TWO",
+            ".log.3 should now contain what was in .log.2 (old .log.3 is gone)"
+        );
+
+        // Verify the oldest content (BACKUP_THREE_OLDEST) no longer exists anywhere
+        for suffix in &["", ".1", ".2", ".3"] {
+            let file_path = if suffix.is_empty() {
+                path.display().to_string()
+            } else {
+                format!("{}{}", path.display(), suffix)
+            };
+            let p = std::path::Path::new(&file_path);
+            if p.exists() {
+                let content = fs::read_to_string(p).unwrap();
+                assert!(
+                    !content.contains("BACKUP_THREE_OLDEST"),
+                    "oldest backup content should be fully discarded, but found in {}",
+                    file_path
+                );
+            }
+        }
+    }
+}
+
+// =========================================================================
+// XDG Base Directories
+// =========================================================================
+
+mod xdg_paths {
+    use crate::infra::config::{xdg_config_home, xdg_data_home};
+    use std::sync::Mutex;
+
+    /// Mutex to serialize env-var-mutating tests. Rust tests run in parallel
+    /// by default, and env vars are process-global state, so concurrent
+    /// modification would cause flaky results.
+    static ENV_MUTEX: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn test_xdg_config_home_falls_back_to_dot_config() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        // Setup -- save and unset XDG_CONFIG_HOME to force fallback
+        let saved = std::env::var("XDG_CONFIG_HOME").ok();
+        std::env::remove_var("XDG_CONFIG_HOME");
+
+        // Execute
+        let result = xdg_config_home();
+
+        // Teardown -- restore original value
+        match saved {
+            Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+            None => {} // was already unset
+        }
+
+        // Assert -- fallback should end with ".config"
+        assert!(
+            result.ends_with(".config"),
+            "xdg_config_home fallback should end with '.config', got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_xdg_data_home_falls_back_to_dot_local_share() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        // Setup -- save and unset XDG_DATA_HOME to force fallback
+        let saved = std::env::var("XDG_DATA_HOME").ok();
+        std::env::remove_var("XDG_DATA_HOME");
+
+        // Execute
+        let result = xdg_data_home();
+
+        // Teardown
+        match saved {
+            Some(val) => std::env::set_var("XDG_DATA_HOME", val),
+            None => {}
+        }
+
+        // Assert -- fallback should end with "share" (from ".local/share")
+        assert!(
+            result.ends_with(".local/share"),
+            "xdg_data_home fallback should end with '.local/share', got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_xdg_config_home_respects_env_var() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        // Setup -- save original and set a known custom path
+        let saved = std::env::var("XDG_CONFIG_HOME").ok();
+        let custom_path = "/tmp/test-xdg-config";
+        std::env::set_var("XDG_CONFIG_HOME", custom_path);
+
+        // Execute
+        let result = xdg_config_home();
+
+        // Teardown
+        match saved {
+            Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+
+        // Assert
+        assert_eq!(
+            result,
+            std::path::PathBuf::from(custom_path),
+            "xdg_config_home should return the value of XDG_CONFIG_HOME"
+        );
+    }
+
+    #[test]
+    fn test_xdg_data_home_respects_env_var() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        // Setup
+        let saved = std::env::var("XDG_DATA_HOME").ok();
+        let custom_path = "/tmp/test-xdg-data";
+        std::env::set_var("XDG_DATA_HOME", custom_path);
+
+        // Execute
+        let result = xdg_data_home();
+
+        // Teardown
+        match saved {
+            Some(val) => std::env::set_var("XDG_DATA_HOME", val),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+
+        // Assert
+        assert_eq!(
+            result,
+            std::path::PathBuf::from(custom_path),
+            "xdg_data_home should return the value of XDG_DATA_HOME"
+        );
+    }
+
+    #[test]
+    fn test_xdg_ignores_empty_env_var() {
+        let _lock = ENV_MUTEX.lock().unwrap();
+
+        // Setup -- set XDG_CONFIG_HOME to empty string, should trigger fallback
+        let saved = std::env::var("XDG_CONFIG_HOME").ok();
+        std::env::set_var("XDG_CONFIG_HOME", "");
+
+        // Execute
+        let result = xdg_config_home();
+
+        // Teardown
+        match saved {
+            Some(val) => std::env::set_var("XDG_CONFIG_HOME", val),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+
+        // Assert -- empty string should be treated as unset, so fallback applies
+        assert!(
+            result.ends_with(".config"),
+            "empty XDG_CONFIG_HOME should fall back to '.config', got: {:?}",
+            result
+        );
+    }
+}
