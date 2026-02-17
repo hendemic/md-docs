@@ -1,6 +1,6 @@
 [package]
 name = "md-docs"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 description = "Convert Markdown files into professional PDFs using Typst templates"
 license = "MIT"
