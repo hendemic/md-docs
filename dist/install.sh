@@ -244,6 +244,21 @@ main() {
     printf "\n"
 
     check_path
+
+    # Offer to initialize (config + default templates)
+    printf "  Would you like to initialize md-docs now? [Y/n] "
+    read -r answer </dev/tty 2>/dev/null || answer=""
+    case "$answer" in
+        [nN]*)
+            printf "\n"
+            info "Run 'mdocs init' when you're ready to get started."
+            ;;
+        *)
+            printf "\n"
+            "${INSTALL_DIR}/${BINARY_NAME}" init
+            ;;
+    esac
+    printf "\n"
 }
 
 main
