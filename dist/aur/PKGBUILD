@@ -1,0 +1,29 @@
+# Maintainer: hendemic
+pkgname=md-docs
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Convert Markdown files into professional PDFs using Typst templates"
+arch=('x86_64' 'aarch64')
+url="https://github.com/hendemic/md-docs"
+license=('MIT')
+makedepends=('cargo')
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/hendemic/md-docs/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+    cd "${pkgname}-${pkgver}"
+    export RUSTUP_TOOLCHAIN=stable
+    cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+    cd "${pkgname}-${pkgver}"
+    export RUSTUP_TOOLCHAIN=stable
+    export CARGO_TARGET_DIR=target
+    cargo build --frozen --release
+}
+
+package() {
+    cd "${pkgname}-${pkgver}"
+    install -Dm755 "target/release/md-docs" "${pkgdir}/usr/bin/md-docs"
+}
