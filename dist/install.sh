@@ -246,7 +246,7 @@ main() {
     check_path
 
     # Offer to initialize (config + default templates)
-    printf "  Would you like to initialize md-docs now? [Y/n] "
+    printf "  Would you like to initialize the configuration file and download the base templates now? [Y/n] "
     read -r answer </dev/tty 2>/dev/null || answer=""
     case "$answer" in
         [nN]*)
