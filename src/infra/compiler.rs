@@ -167,7 +167,7 @@ fn compile_typst(temp_dir: &Path) -> anyhow::Result<(Vec<u8>, Vec<String>)> {
         .build();
 
     let result = engine.compile::<PagedDocument>();
-    let warnings: Vec<String> = result.warnings.iter().map(|w| format!("{:?}", w)).collect();
+    let warnings: Vec<String> = result.warnings.iter().map(|w| w.message.to_string()).collect();
 
     let doc = result
         .output

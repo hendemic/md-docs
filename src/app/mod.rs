@@ -165,8 +165,21 @@ impl AppController {
             input.display(), template.id, brand.id
         )));
         let result = crate::infra::compiler::compile(&document, &template, &brand, &output_path)?;
+
+        // Deduplicate and surface font warnings with actionable advice
+        let mut seen_font_warnings = std::collections::HashSet::new();
         for w in &result.warnings {
-            self.emit(CliMessage::Warning(format!("typst: {}", w)));
+            if let Some(font_name) = w.strip_prefix("unknown font family: ") {
+                if seen_font_warnings.insert(font_name.to_string()) {
+                    self.emit(CliMessage::Warning(format!(
+                        "font '{}' not found — falling back to embedded default. \
+                         Install the font or update the brand to use an available font.",
+                        font_name
+                    )));
+                }
+            } else {
+                self.emit(CliMessage::Warning(format!("typst: {}", w)));
+            }
         }
         self.emit(CliMessage::Success(format!("Output: {}", output_path.display())));
 
