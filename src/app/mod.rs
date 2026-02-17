@@ -213,7 +213,7 @@ impl AppController {
         // 3. Interactive selection via dialoguer
         let templates = self.template_manager.discover_templates()?;
         if templates.is_empty() {
-            anyhow::bail!("No templates found. Install base templates with 'md-docs templates install'.");
+            anyhow::bail!("No templates found. Install base templates with 'mdocs templates install'.");
         }
 
         let rows: Vec<TableRow> = templates.iter().map(|t| TableRow {
@@ -256,7 +256,7 @@ impl AppController {
         // 4. Interactive selection via dialoguer
         let brands = self.template_manager.discover_brands()?;
         if brands.is_empty() {
-            anyhow::bail!("No brands found. Install base templates with 'md-docs templates install'.");
+            anyhow::bail!("No brands found. Install base templates with 'mdocs templates install'.");
         }
 
         let rows: Vec<TableRow> = brands.iter().map(|b| TableRow {
@@ -303,7 +303,7 @@ impl AppController {
     pub fn list_templates(&self) -> anyhow::Result<()> {
         let templates = self.template_manager.discover_templates()?;
         if templates.is_empty() {
-            self.emit(CliMessage::Warning("No templates found. Install base templates with 'md-docs templates install'.".to_string()));
+            self.emit(CliMessage::Warning("No templates found. Install base templates with 'mdocs templates install'.".to_string()));
             return Ok(());
         }
 
@@ -354,7 +354,7 @@ impl AppController {
         let config_path = ConfigLoader::global_config_path();
         if !config_path.exists() {
             anyhow::bail!(
-                "No config file found. Run 'md-docs init' first to create {}",
+                "No config file found. Run 'mdocs init' first to create {}",
                 config_path.display()
             );
         }
@@ -406,7 +406,7 @@ impl AppController {
     pub fn list_brands(&self) -> anyhow::Result<()> {
         let brands = self.template_manager.discover_brands()?;
         if brands.is_empty() {
-            self.emit(CliMessage::Warning("No brands found. Install base templates with 'md-docs templates install'.".to_string()));
+            self.emit(CliMessage::Warning("No brands found. Install base templates with 'mdocs templates install'.".to_string()));
             return Ok(());
         }
 
@@ -458,7 +458,7 @@ impl AppController {
 
         if !self.config.repos().is_empty() {
             self.emit(CliMessage::Plain(format!("\n  {}:", "Repos".bold())));
-            let repos_base = crate::infra::system::xdg_data_home().join("md-docs/repos");
+            let repos_base = crate::infra::system::xdg_data_home().join("mdocs/repos");
             for repo in self.config.repos() {
                 let installed = repos_base.join(&repo.name).join(".git").is_dir();
                 let status = if installed { "installed" } else { "not installed" };
@@ -607,8 +607,8 @@ impl AppController {
         }
 
         // 2. Gather items to remove
-        let config_dir = crate::infra::system::xdg_config_home().join("md-docs");
-        let data_dir = crate::infra::system::xdg_data_home().join("md-docs");
+        let config_dir = crate::infra::system::xdg_config_home().join("mdocs");
+        let data_dir = crate::infra::system::xdg_data_home().join("mdocs");
         let binary = std::env::current_exe()?.canonicalize()?;
 
         let mut items: Vec<PathBuf> = Vec::new();
@@ -696,7 +696,7 @@ impl AppController {
         }
 
         let default_content = format!(
-            r#"# md-docs global configuration
+            r#"# mdocs global configuration
 
 # default_template = "resume-2-col"
 # default_brand = "generic"
