@@ -17,6 +17,12 @@ if [[ -z "$VERSION" ]]; then
 fi
 echo "Building md-docs v${VERSION}"
 
+# Define targets
+TARGETS=(
+    "x86_64-unknown-linux-musl"
+    "aarch64-unknown-linux-musl"
+)
+
 # Check required tools
 for tool in cargo-zigbuild tar; do
     if ! command -v "$tool" &>/dev/null; then
@@ -30,12 +36,6 @@ done
 for target in "${TARGETS[@]}"; do
     rustup target add "$target" 2>/dev/null
 done
-
-# Define targets
-TARGETS=(
-    "x86_64-unknown-linux-musl"
-    "aarch64-unknown-linux-musl"
-)
 
 # Create/clean output directory
 RELEASE_DIR="$PROJECT_ROOT/dist/release"
