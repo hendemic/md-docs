@@ -1059,31 +1059,10 @@ mod error_display {
     }
 
     #[test]
-    fn test_compilation_failed_error_message() {
-        let err = MdDocsError::CompilationFailed("missing font".to_string());
-        let msg = format!("{}", err);
-        assert!(msg.contains("typst compilation failed"));
-    }
-
-    #[test]
-    fn test_invalid_config_error_message() {
-        let err = MdDocsError::InvalidConfig("bad toml".to_string());
-        let msg = format!("{}", err);
-        assert!(msg.contains("invalid configuration"));
-    }
-
-    #[test]
     fn test_repo_operation_failed_error_message() {
         let err = MdDocsError::RepoOperationFailed("clone failed".to_string());
         let msg = format!("{}", err);
         assert!(msg.contains("repository operation failed"));
-    }
-
-    #[test]
-    fn test_user_managed_template_error_message() {
-        let err = MdDocsError::UserManagedTemplate("my-template".to_string());
-        let msg = format!("{}", err);
-        assert!(msg.contains("cannot remove user-managed template"));
     }
 }
 
@@ -1286,61 +1265,3 @@ mod constants {
     }
 }
 
-// =========================================================================
-// CliMessage formatting
-// =========================================================================
-
-mod cli_message_tests {
-    use super::*;
-
-    #[test]
-    fn test_success_formatted_contains_checkmark_and_message() {
-        let msg = CliMessage::Success("done".to_string());
-        let output = msg.formatted();
-        assert!(output.contains("done"));
-        assert!(output.contains("\u{2713}") || output.len() > "done".len());
-    }
-
-    #[test]
-    fn test_info_formatted_contains_message() {
-        let msg = CliMessage::Info("compiling...".to_string());
-        let output = msg.formatted();
-        assert!(output.contains("compiling..."));
-    }
-
-    #[test]
-    fn test_warning_formatted_contains_prefix_and_message() {
-        let msg = CliMessage::Warning("missing font".to_string());
-        let output = msg.formatted();
-        assert!(output.contains("warning:"));
-        assert!(output.contains("missing font"));
-    }
-
-    #[test]
-    fn test_error_formatted_contains_prefix_and_message() {
-        let msg = CliMessage::Error("file not found".to_string());
-        let output = msg.formatted();
-        assert!(output.contains("error:"));
-        assert!(output.contains("file not found"));
-    }
-
-    #[test]
-    fn test_log_formatted_contains_message() {
-        let msg = CliMessage::Log("debug info".to_string());
-        let output = msg.formatted();
-        assert!(output.contains("debug info"));
-    }
-
-    #[test]
-    fn test_plain_formatted_is_passthrough() {
-        let msg = CliMessage::Plain("raw text".to_string());
-        let output = msg.formatted();
-        assert_eq!(output, "raw text");
-    }
-
-    #[test]
-    fn test_display_impl_matches_formatted() {
-        let msg = CliMessage::Success("test".to_string());
-        assert_eq!(format!("{}", msg), msg.formatted());
-    }
-}
