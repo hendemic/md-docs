@@ -100,6 +100,12 @@ pub enum TemplateCommands {
         /// Specific repo name to update. Updates all if omitted.
         name: Option<String>,
     },
+
+    /// Add a template source (git repo URL or local directory path) to config.
+    Add {
+        /// Git repo URL or local directory path.
+        source: String,
+    },
 }
 
 /// Subcommands for brand management.
@@ -137,6 +143,7 @@ pub fn run() -> anyhow::Result<()> {
             TemplateCommands::List => controller.list_templates(),
             TemplateCommands::Install { name } => controller.install_templates(name),
             TemplateCommands::Update { name } => controller.update_templates(name),
+            TemplateCommands::Add { source } => controller.add_source(&source),
         },
 
         Commands::Brands { action } => match action {

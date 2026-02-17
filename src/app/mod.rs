@@ -329,6 +329,58 @@ impl AppController {
         Ok(())
     }
 
+    /// Add a template source (git repo or local directory) to the global config.
+    ///
+    /// Detects whether the argument is a git URI or local path, validates it,
+    /// checks for duplicates, and appends the appropriate TOML entry.
+    pub fn add_source(&self, source: &str) -> anyhow::Result<()> {
+        let config_path = ConfigLoader::global_config_path();
+        if !config_path.exists() {
+            anyhow::bail!(
+                "No config file found. Run 'md-docs init' first to create {}",
+                config_path.display()
+            );
+        }
+
+        if is_git_uri(source) {
+            let name = repo_name_from_uri(source)?;
+
+            // Check for duplicate repo name
+            if self.config.repos().iter().any(|r| r.name == name) {
+                anyhow::bail!("Repo '{}' already exists in config.", name);
+            }
+
+            let entry = format!("\n[[repos]]\nname = \"{}\"\nurl = \"{}\"\n", name, source);
+            append_to_config(&config_path, &entry)?;
+            self.emit(CliMessage::Success(format!(
+                "Added repo '{}' ({}). Run 'md-docs templates install {}' to clone it.",
+                name, source, name
+            )));
+        } else {
+            let path = PathBuf::from(source);
+            if !path.is_dir() {
+                anyhow::bail!("Directory '{}' does not exist.", source);
+            }
+
+            let canonical = path.canonicalize()?;
+
+            // Check for duplicate local path
+            if self.config.local().iter().any(|l| {
+                l.path.canonicalize().ok().as_ref() == Some(&canonical)
+            }) {
+                anyhow::bail!("Local source '{}' already exists in config.", canonical.display());
+            }
+
+            let entry = format!("\n[[local]]\npath = \"{}\"\n", canonical.display());
+            append_to_config(&config_path, &entry)?;
+            self.emit(CliMessage::Success(format!(
+                "Added local source '{}'.", canonical.display()
+            )));
+        }
+
+        Ok(())
+    }
+
     // -----------------------------------------------------------------------
     // Brand commands
     // -----------------------------------------------------------------------
@@ -609,6 +661,42 @@ fn format_selector_items(rows: &[TableRow<'_>]) -> Vec<String> {
             format!("{}{}{}", name_padded, id_padded, desc.dimmed())
         })
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Source detection helpers
+// ---------------------------------------------------------------------------
+
+/// Returns true if the source string looks like a git URI.
+fn is_git_uri(source: &str) -> bool {
+    source.contains("://") || source.starts_with("git@")
+}
+
+/// Derive a repo name from a git URI.
+///
+/// Extracts the last path component and strips `.git` suffix.
+/// e.g., `https://github.com/user/my-templates.git` → `my-templates`
+fn repo_name_from_uri(uri: &str) -> anyhow::Result<String> {
+    let trimmed = uri.trim_end_matches('/').trim_end_matches(".git");
+    let name = trimmed
+        .rsplit('/')
+        .next()
+        .or_else(|| trimmed.rsplit(':').next())
+        .ok_or_else(|| anyhow::anyhow!("Could not derive repo name from URI: {}", uri))?;
+
+    if name.is_empty() {
+        anyhow::bail!("Could not derive repo name from URI: {}", uri);
+    }
+
+    Ok(name.to_string())
+}
+
+/// Append raw TOML text to the global config file.
+fn append_to_config(path: &Path, entry: &str) -> anyhow::Result<()> {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new().append(true).open(path)?;
+    file.write_all(entry.as_bytes())?;
+    Ok(())
 }
 
 #[cfg(test)]

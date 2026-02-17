@@ -11,22 +11,10 @@ mod config_loading {
     use super::*;
 
     #[test]
-    fn test_load_returns_config_even_when_no_files_exist() {
-        // Execute -- in a test environment, global/project config files may not exist
+    fn test_load_succeeds() {
+        // Execute -- should succeed whether or not config files exist on the host
         let result = ConfigLoader::load();
-
-        // Assert -- should succeed and return defaults
-        assert!(result.is_ok(), "load should succeed even with no config files");
-        let config = result.unwrap();
-        // repos and local should be empty by default
-        assert!(
-            config.repos().is_empty(),
-            "default config should have empty repos"
-        );
-        assert!(
-            config.local().is_empty(),
-            "default config should have empty local"
-        );
+        assert!(result.is_ok(), "load should always succeed: {:?}", result.err());
     }
 }
 
