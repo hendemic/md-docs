@@ -1,16 +1,22 @@
 //! Simple file-based logger for debugging.
 //!
 //! Appends timestamped entries to a log file in the XDG data directory.
-//! No log rotation — volume is low enough that this is not needed yet.
+//! Rotates at startup when the log exceeds 1MB, keeping up to 3 backups.
 //!
 //! # Log location
 //! `$XDG_DATA_HOME/md-docs/md-docs.log` (typically `~/.local/share/md-docs/md-docs.log`)
 
-use std::fs::{OpenOptions, create_dir_all};
+use std::fs::{self, OpenOptions, create_dir_all};
 use std::io::Write;
 use std::path::PathBuf;
 
 use crate::domain::CliMessage;
+
+/// Maximum log file size before rotation (1MB).
+const MAX_LOG_SIZE: u64 = 1_048_576;
+
+/// Number of rotated backup files to keep.
+const MAX_BACKUPS: u32 = 3;
 
 /// File logger that appends entries to the md-docs log file.
 pub struct FileLogger {
@@ -20,8 +26,8 @@ pub struct FileLogger {
 impl FileLogger {
     /// Create a new FileLogger pointing to the XDG data directory.
     ///
-    /// Eagerly creates the parent directory so that `write_entry` does not
-    /// need to call `create_dir_all` on every write.
+    /// Eagerly creates the parent directory and rotates the log file if it
+    /// exceeds `MAX_LOG_SIZE`. Rotation only happens at startup.
     pub fn new() -> Self {
         let data_dir = dirs::data_dir()
             .unwrap_or_else(|| {
@@ -33,9 +39,10 @@ impl FileLogger {
         // Best-effort: create the log directory at construction time
         let _ = create_dir_all(&data_dir);
 
-        Self {
-            path: data_dir.join("md-docs.log"),
-        }
+        let path = data_dir.join("md-docs.log");
+        rotate_if_needed(&path);
+
+        Self { path }
     }
 
     /// Create a FileLogger with a custom path (for testing).
@@ -43,6 +50,7 @@ impl FileLogger {
         if let Some(parent) = path.parent() {
             let _ = create_dir_all(parent);
         }
+        rotate_if_needed(&path);
         Self { path }
     }
 
@@ -79,4 +87,27 @@ impl FileLogger {
 
         Ok(())
     }
+}
+
+/// Rotate the log file if it exceeds `MAX_LOG_SIZE`.
+///
+/// Shifts existing backups: .log.2 → .log.3, .log.1 → .log.2, .log → .log.1.
+/// Deletes the oldest backup if the limit is reached. Best-effort — silently
+/// ignores errors since logging should never break the application.
+fn rotate_if_needed(path: &std::path::Path) {
+    let size = fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    if size < MAX_LOG_SIZE {
+        return;
+    }
+
+    // Shift existing backups (highest number first to avoid overwriting)
+    for i in (1..MAX_BACKUPS).rev() {
+        let from = format!("{}.{}", path.display(), i);
+        let to = format!("{}.{}", path.display(), i + 1);
+        let _ = fs::rename(&from, &to);
+    }
+
+    // Rotate current log to .1
+    let backup = format!("{}.1", path.display());
+    let _ = fs::rename(path, &backup);
 }
