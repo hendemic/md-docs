@@ -70,7 +70,7 @@ impl TemplateManager {
 
     /// Base directory for cloned repositories.
     fn repos_base_dir() -> PathBuf {
-        super::system::xdg_data_home().join("md-docs/repos")
+        super::system::xdg_data_home().join("mdocs/repos")
     }
 
     /// Clone path for a named repo.
@@ -345,7 +345,7 @@ impl TemplateManager {
 
             if !clone_path.join(".git").is_dir() {
                 return Err(MdDocsError::RepoOperationFailed(format!(
-                    "repo '{}' not installed. Run 'md-docs templates install' first.",
+                    "repo '{}' not installed. Run 'mdocs templates install' first.",
                     repo.name
                 ))
                 .into());

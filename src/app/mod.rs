@@ -213,7 +213,7 @@ impl AppController {
         // 3. Interactive selection via dialoguer
         let templates = self.template_manager.discover_templates()?;
         if templates.is_empty() {
-            anyhow::bail!("No templates found. Install base templates with 'md-docs templates install'.");
+            anyhow::bail!("No templates found. Install base templates with 'mdocs templates install'.");
         }
 
         let rows: Vec<TableRow> = templates.iter().map(|t| TableRow {
@@ -256,7 +256,7 @@ impl AppController {
         // 4. Interactive selection via dialoguer
         let brands = self.template_manager.discover_brands()?;
         if brands.is_empty() {
-            anyhow::bail!("No brands found. Install base templates with 'md-docs templates install'.");
+            anyhow::bail!("No brands found. Install base templates with 'mdocs templates install'.");
         }
 
         let rows: Vec<TableRow> = brands.iter().map(|b| TableRow {
@@ -303,7 +303,7 @@ impl AppController {
     pub fn list_templates(&self) -> anyhow::Result<()> {
         let templates = self.template_manager.discover_templates()?;
         if templates.is_empty() {
-            self.emit(CliMessage::Warning("No templates found. Install base templates with 'md-docs templates install'.".to_string()));
+            self.emit(CliMessage::Warning("No templates found. Install base templates with 'mdocs templates install'.".to_string()));
             return Ok(());
         }
 
@@ -354,7 +354,7 @@ impl AppController {
         let config_path = ConfigLoader::global_config_path();
         if !config_path.exists() {
             anyhow::bail!(
-                "No config file found. Run 'md-docs init' first to create {}",
+                "No config file found. Run 'mdocs init' first to create {}",
                 config_path.display()
             );
         }
@@ -406,7 +406,7 @@ impl AppController {
     pub fn list_brands(&self) -> anyhow::Result<()> {
         let brands = self.template_manager.discover_brands()?;
         if brands.is_empty() {
-            self.emit(CliMessage::Warning("No brands found. Install base templates with 'md-docs templates install'.".to_string()));
+            self.emit(CliMessage::Warning("No brands found. Install base templates with 'mdocs templates install'.".to_string()));
             return Ok(());
         }
 
@@ -458,7 +458,7 @@ impl AppController {
 
         if !self.config.repos().is_empty() {
             self.emit(CliMessage::Plain(format!("\n  {}:", "Repos".bold())));
-            let repos_base = crate::infra::system::xdg_data_home().join("md-docs/repos");
+            let repos_base = crate::infra::system::xdg_data_home().join("mdocs/repos");
             for repo in self.config.repos() {
                 let installed = repos_base.join(&repo.name).join(".git").is_dir();
                 let status = if installed { "installed" } else { "not installed" };
@@ -588,6 +588,98 @@ impl AppController {
     }
 
     // -----------------------------------------------------------------------
+    // Uninstall command
+    // -----------------------------------------------------------------------
+
+    /// Remove md-docs, its configuration, and data from this system.
+    pub fn self_uninstall(&self) -> anyhow::Result<()> {
+        use crate::infra::updater;
+
+        // 1. Check for AUR install
+        if updater::is_aur_install() {
+            self.emit(CliMessage::Info(
+                "md-docs was installed via your system package manager.".to_string(),
+            ));
+            self.emit(CliMessage::Info(
+                "Uninstall using: pacman -Rns md-docs".to_string(),
+            ));
+            return Ok(());
+        }
+
+        // 2. Gather items to remove
+        let config_dir = crate::infra::system::xdg_config_home().join("mdocs");
+        let data_dir = crate::infra::system::xdg_data_home().join("mdocs");
+        let binary = std::env::current_exe()?.canonicalize()?;
+
+        let mut items: Vec<PathBuf> = Vec::new();
+        if config_dir.exists() {
+            items.push(config_dir.clone());
+        }
+        if data_dir.exists() {
+            items.push(data_dir.clone());
+        }
+        items.push(binary.clone());
+
+        // 3. Print what will be removed
+        self.emit(CliMessage::Plain("The following will be removed:".to_string()));
+        for item in &items {
+            self.emit(CliMessage::Plain(format!("  - {}", item.display())));
+        }
+
+        // 4. Prompt for confirmation
+        {
+            use std::io::Write;
+            print!("\nType 'confirm' to proceed: ");
+            std::io::stdout().flush()?;
+        }
+
+        let input = {
+            use std::io::BufRead;
+            let stdin = std::io::stdin();
+            let mut line = String::new();
+            stdin.lock().read_line(&mut line)?;
+            line.trim().to_string()
+        };
+
+        if input != "confirm" {
+            self.emit(CliMessage::Info("Uninstall cancelled.".to_string()));
+            return Ok(());
+        }
+
+        // 5. Delete config dir
+        if config_dir.exists() {
+            std::fs::remove_dir_all(&config_dir)?;
+            self.emit(CliMessage::Success(format!("Removed {}", config_dir.display())));
+        }
+
+        // 6. Delete data dir
+        if data_dir.exists() {
+            std::fs::remove_dir_all(&data_dir)?;
+            self.emit(CliMessage::Success(format!("Removed {}", data_dir.display())));
+        }
+
+        // 7. Delete the binary last
+        match std::fs::remove_file(&binary) {
+            Ok(()) => {
+                self.emit(CliMessage::Success(format!("Removed {}", binary.display())));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                self.emit(CliMessage::Warning(format!(
+                    "Could not remove {} (permission denied). Remove it manually with: sudo rm {}",
+                    binary.display(),
+                    binary.display()
+                )));
+            }
+            Err(e) => return Err(e.into()),
+        }
+
+        // 8. Print success
+        self.emit(CliMessage::Success("md-docs has been uninstalled.".to_string()));
+
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
     // Init / New commands
     // -----------------------------------------------------------------------
 
@@ -604,7 +696,7 @@ impl AppController {
         }
 
         let default_content = format!(
-            r#"# md-docs global configuration
+            r#"# mdocs global configuration
 
 # default_template = "resume-2-col"
 # default_brand = "generic"

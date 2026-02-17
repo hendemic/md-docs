@@ -53,14 +53,14 @@ impl ConfigLoader {
 
     /// Path to the global config file.
     pub fn global_config_path() -> PathBuf {
-        xdg_config_home().join("md-docs/config.toml")
+        xdg_config_home().join("mdocs/config.toml")
     }
 
     /// Path to the project-level config file.
     fn project_config_path() -> PathBuf {
         std::env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
-            .join(".md-docs.toml")
+            .join(".mdocs.toml")
     }
 
     /// Load a TOML config file, returning `None` if it doesn't exist.
@@ -108,10 +108,10 @@ pub struct FileLogger {
 impl FileLogger {
     /// Create a logger pointing to the XDG data directory.
     pub fn new() -> Self {
-        let data_dir = xdg_data_home().join("md-docs");
+        let data_dir = xdg_data_home().join("mdocs");
         let _ = create_dir_all(&data_dir);
 
-        let path = data_dir.join("md-docs.log");
+        let path = data_dir.join("mdocs.log");
         rotate_if_needed(&path);
 
         Self { path }

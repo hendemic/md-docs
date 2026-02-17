@@ -1,14 +1,19 @@
 # mdocs overview
-mdocs is a CLI app that converts markdown files into formatted pdf documents using typst.
+mdocs is a CLI app that converts markdown files into formatted pdf documents using typst. Currently supported on Linux and MacOS.
 
 # Installation
+To install run:
+```
+curl -fsSL https://raw.githubusercontent.com/hendemic/md-docs/main/dist/install.sh | sh
+```
+
 This app is still in active development. Until install, updates, and uninstall are developed, pull this repo, use `cargo build --release`, and move the binary to your bin to use the CLI. 
 
 Future versions will include install and updates via the app and published binaries for Linux and MacOS.
 
 # Initialization and Templates
 ## Configuration
-`mdocs init` will set up the configuration file. 
+If you didn't initialize during install, `mdocs init` will set up the configuration file. 
 
 Configuration is light and includes optional settings. Future versions will support custom template repos and output directories. 
 
@@ -19,6 +24,10 @@ Configuration is light and includes optional settings. Future versions will supp
 # default_template = "resume-2-col"
 # default_brand = "generic"
 # author = "Your Name"
+
+[[repos]]
+name = "default"
+url = "https://github.com/hendemic/md-docs-templates.git"
 ```
 
 ## Templates
@@ -44,7 +53,7 @@ To convert a doc, simply type `mdocs <filepath>`. You'll be prompted for a templ
 ## Commands
 
 ```
-mdocs convert <file> [-t template] [-b brand] [-o output]   Convert a Markdown file to PDF
+mdocs convert <file> [-t template] [-b brand] [-o output]    Convert a Markdown file to PDF
 mdocs init                                                   Initialize config and install templates
 mdocs new <template> [output_dir] [--name filename]          Create a new document from a starter file
 mdocs config                                                 Show current configuration
@@ -53,6 +62,7 @@ mdocs templates list                                         List available temp
 mdocs templates install [url]                                Install templates (defaults to official repo)
 mdocs templates update [name]                                Update installed templates
 mdocs templates remove <name>                                Remove a template
+mdocs templates add [url/local dir]                          Add a template source (git repo URL or local directory path) to config
 
 mdocs brands list                                            List available brands
 ```
