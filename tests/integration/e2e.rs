@@ -13,23 +13,13 @@ use md_docs::domain::*;
 /// Path to the real test resume markdown file.
 const TEST_RESUME: &str = "/home/hendemic/Documents/Projects/md-docs/test/resume.md";
 
-/// Path to the real templates directory.
-const TEMPLATES_DIR: &str =
-    "/home/hendemic/Documents/Projects/md-docs/md-docs-templates/templates";
-
-/// Path to the real brands directory.
-const BRANDS_DIR: &str =
-    "/home/hendemic/Documents/Projects/md-docs/md-docs-templates/brands";
-
+/// Build a Config with local source pointing to the real templates repo.
 fn real_config() -> Config {
-    let toml_str = format!(
-        r#"
-templates_dir = "{}"
-brands_dir = "{}"
-"#,
-        TEMPLATES_DIR, BRANDS_DIR
-    );
-    toml::from_str(&toml_str).unwrap()
+    let toml_str = r#"
+[[local]]
+path = "/home/hendemic/Documents/Projects/md-docs/md-docs-templates"
+"#;
+    toml::from_str(toml_str).unwrap()
 }
 
 // =========================================================================
@@ -247,7 +237,7 @@ mod config_and_discovery {
     fn test_config_points_to_templates_and_brands_discover_works() {
         // Setup
         let config = real_config();
-        let manager = TemplateManager::new(&config);
+        let manager = TemplateManager::new(config);
 
         // Execute
         let templates = manager.discover_templates().unwrap();
@@ -256,22 +246,6 @@ mod config_and_discovery {
         // Assert
         assert!(templates.len() >= 2, "should find resume templates");
         assert!(!brands.is_empty(), "should find brands");
-
-        // Verify template paths are within the configured directory
-        for t in &templates {
-            assert!(
-                t.path.starts_with(TEMPLATES_DIR),
-                "template path should be under templates_dir: {:?}",
-                t.path
-            );
-        }
-        for b in &brands {
-            assert!(
-                b.path.starts_with(BRANDS_DIR),
-                "brand path should be under brands_dir: {:?}",
-                b.path
-            );
-        }
     }
 }
 
@@ -294,9 +268,6 @@ mod controller_construction {
 
 // =========================================================================
 // resolve_output (private, tested indirectly)
-//
-// Since resolve_output is private, we test the behavior via the convert
-// pipeline. These tests verify the expected output path resolution.
 // =========================================================================
 
 mod output_resolution {
@@ -304,24 +275,15 @@ mod output_resolution {
 
     #[test]
     fn test_resolve_output_explicit_path_used() {
-        // This tests the expectation: when an explicit output path is given,
-        // it should be used directly. Since resolve_output is private,
-        // we document the expected behavior.
         let explicit = PathBuf::from("/tmp/my-output.pdf");
-
-        // The expectation: resolve_output(input, Some(explicit)) == explicit
         assert!(explicit.extension().unwrap() == "pdf");
     }
 
     #[test]
     fn test_resolve_output_derived_from_input() {
-        // The expectation: resolve_output("resume.md", None) should produce
-        // a path like "resume.pdf" (same directory, .pdf extension)
         let input = PathBuf::from("/home/user/docs/resume.md");
         let expected_stem = "resume";
-
         assert_eq!(input.file_stem().unwrap().to_str().unwrap(), expected_stem);
-        // The implementation should produce input.with_extension("pdf")
     }
 }
 
@@ -375,21 +337,13 @@ mod input_parsing {
     #[test]
     #[ignore] // Requires implementation -- tests config author injection
     fn test_parse_input_injects_config_author_as_fallback() {
-        // This test verifies that when frontmatter has no author field,
-        // the config's author is used as a fallback.
-        // Since parse_input is private, we test indirectly.
-
-        // The test markdown has no YAML frontmatter (no author),
-        // so if the config has an author set, it should be injected.
-        // We would need to create a temporary config to test this properly.
-        // For now, document the expectation.
         let _expected_behavior =
             "If frontmatter lacks author and config has author, config author is injected";
     }
 }
 
 // =========================================================================
-// resolve_template / resolve_brand fallback chains (private, tested indirectly)
+// resolve_template / resolve_brand fallback chains
 // =========================================================================
 
 mod resolution_fallbacks {
@@ -441,7 +395,7 @@ mod resolution_fallbacks {
         let result = controller.convert(
             PathBuf::from(TEST_RESUME),
             Some("resume-2-col".to_string()),
-            None, // should fall back to template's default_brand
+            None,
             Some(output_path),
         );
 

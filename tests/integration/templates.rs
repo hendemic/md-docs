@@ -1,45 +1,62 @@
 use md_docs::infra::templates::{load_modifiers, TemplateManager};
-use md_docs::domain::{Config, ModifierType, OnIgnore};
+use md_docs::domain::{Config, ModifierType, OnIgnore, TemplateSource};
 
 // =========================================================================
 // Helpers
 // =========================================================================
 
-/// Path to the real templates directory in the md-docs-templates repo.
-const TEMPLATES_DIR: &str =
-    "/home/hendemic/Documents/Projects/md-docs/md-docs-templates/templates";
-
-/// Path to the real brands directory in the md-docs-templates repo.
-const BRANDS_DIR: &str =
-    "/home/hendemic/Documents/Projects/md-docs/md-docs-templates/brands";
-
-/// Build a Config that points to the real templates repo.
+/// Build a Config with a local source pointing to the real templates repo.
 fn config_with_real_dirs() -> Config {
     let toml_str = format!(
         r#"
-templates_dir = "{}"
-brands_dir = "{}"
+[[local]]
+path = "{}"
 "#,
-        TEMPLATES_DIR, BRANDS_DIR
+        // local source path is the parent dir containing templates/ and brands/ subdirs
+        "/home/hendemic/Documents/Projects/md-docs/md-docs-templates"
     );
     toml::from_str(&toml_str).unwrap()
 }
 
-/// Build a Config pointing to a temporary (possibly empty) directory.
-fn config_with_temp_dirs(temp_dir: &std::path::Path) -> Config {
+/// Build a Config with a local source pointing to a temporary directory.
+/// Creates templates/ and brands/ subdirectories inside the temp dir.
+fn config_with_temp_local(temp_dir: &std::path::Path) -> Config {
     let templates = temp_dir.join("templates");
     let brands = temp_dir.join("brands");
     std::fs::create_dir_all(&templates).unwrap();
     std::fs::create_dir_all(&brands).unwrap();
     let toml_str = format!(
         r#"
-templates_dir = "{}"
-brands_dir = "{}"
+[[local]]
+path = "{}"
 "#,
-        templates.display(),
-        brands.display()
+        temp_dir.display()
     );
     toml::from_str(&toml_str).unwrap()
+}
+
+/// Create a minimal template in a directory: template.typ + metadata.toml.
+fn create_template(base: &std::path::Path, name: &str, display_name: &str) {
+    let dir = base.join("templates").join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("template.typ"), "// template").unwrap();
+    std::fs::write(
+        dir.join("metadata.toml"),
+        format!("name = \"{}\"", display_name),
+    )
+    .unwrap();
+}
+
+/// Create a minimal brand in a directory: brand.typ + metadata.toml.
+fn create_brand(base: &std::path::Path, name: &str, display_name: &str) {
+    let dir = base.join("brands").join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("brand.typ"), "// brand").unwrap();
+    std::fs::write(
+        dir.join("metadata.toml"),
+        format!("name = \"{}\"", display_name),
+    )
+    .unwrap();
 }
 
 // =========================================================================
@@ -106,7 +123,7 @@ mod modifier_loading {
 }
 
 // =========================================================================
-// TemplateManager discovery
+// TemplateManager discovery (existing tests using real dirs)
 // =========================================================================
 
 mod template_discovery {
@@ -116,7 +133,7 @@ mod template_discovery {
     fn test_discover_templates_finds_real_templates() {
         // Setup
         let config = config_with_real_dirs();
-        let manager = TemplateManager::new(&config);
+        let manager = TemplateManager::new(config);
 
         // Execute
         let result = manager.discover_templates();
@@ -139,7 +156,7 @@ mod template_discovery {
     fn test_discover_brands_finds_real_brands() {
         // Setup
         let config = config_with_real_dirs();
-        let manager = TemplateManager::new(&config);
+        let manager = TemplateManager::new(config);
 
         // Execute
         let result = manager.discover_brands();
@@ -160,8 +177,8 @@ mod template_discovery {
     fn test_discover_templates_empty_dir() {
         // Setup
         let temp_dir = tempfile::tempdir().unwrap();
-        let config = config_with_temp_dirs(temp_dir.path());
-        let manager = TemplateManager::new(&config);
+        let config = config_with_temp_local(temp_dir.path());
+        let manager = TemplateManager::new(config);
 
         // Execute
         let result = manager.discover_templates();
@@ -176,8 +193,8 @@ mod template_discovery {
     fn test_discover_brands_empty_dir() {
         // Setup
         let temp_dir = tempfile::tempdir().unwrap();
-        let config = config_with_temp_dirs(temp_dir.path());
-        let manager = TemplateManager::new(&config);
+        let config = config_with_temp_local(temp_dir.path());
+        let manager = TemplateManager::new(config);
 
         // Execute
         let result = manager.discover_brands();
@@ -192,12 +209,12 @@ mod template_discovery {
     fn test_discover_templates_skips_dirs_without_template_typ() {
         // Setup -- create a directory without template.typ
         let temp_dir = tempfile::tempdir().unwrap();
-        let config = config_with_temp_dirs(temp_dir.path());
+        let config = config_with_temp_local(temp_dir.path());
         let fake_template_dir = temp_dir.path().join("templates").join("not-a-template");
         std::fs::create_dir_all(&fake_template_dir).unwrap();
         std::fs::write(fake_template_dir.join("random.txt"), "not a template").unwrap();
 
-        let manager = TemplateManager::new(&config);
+        let manager = TemplateManager::new(config);
 
         // Execute
         let result = manager.discover_templates();
@@ -223,7 +240,7 @@ mod template_resolution {
     fn test_resolve_template_found() {
         // Setup
         let config = config_with_real_dirs();
-        let manager = TemplateManager::new(&config);
+        let manager = TemplateManager::new(config);
 
         // Execute
         let result = manager.resolve_template("resume-2-col");
@@ -239,7 +256,7 @@ mod template_resolution {
     fn test_resolve_template_not_found() {
         // Setup
         let config = config_with_real_dirs();
-        let manager = TemplateManager::new(&config);
+        let manager = TemplateManager::new(config);
 
         // Execute
         let result = manager.resolve_template("nonexistent-template");
@@ -252,7 +269,7 @@ mod template_resolution {
     fn test_resolve_brand_found() {
         // Setup
         let config = config_with_real_dirs();
-        let manager = TemplateManager::new(&config);
+        let manager = TemplateManager::new(config);
 
         // Execute
         let result = manager.resolve_brand("generic");
@@ -268,7 +285,7 @@ mod template_resolution {
     fn test_resolve_brand_not_found() {
         // Setup
         let config = config_with_real_dirs();
-        let manager = TemplateManager::new(&config);
+        let manager = TemplateManager::new(config);
 
         // Execute
         let result = manager.resolve_brand("nonexistent-brand");
@@ -279,7 +296,7 @@ mod template_resolution {
 }
 
 // =========================================================================
-// Metadata reading (private methods, tested indirectly via discover/resolve)
+// Metadata reading
 // =========================================================================
 
 mod metadata_reading {
@@ -289,7 +306,7 @@ mod metadata_reading {
     fn test_resolve_template_reads_metadata_correctly() {
         // Setup
         let config = config_with_real_dirs();
-        let manager = TemplateManager::new(&config);
+        let manager = TemplateManager::new(config);
 
         // Execute
         let template = manager.resolve_template("resume-ats").unwrap();
@@ -310,7 +327,7 @@ mod metadata_reading {
     fn test_resolve_brand_reads_metadata_correctly() {
         // Setup
         let config = config_with_real_dirs();
-        let manager = TemplateManager::new(&config);
+        let manager = TemplateManager::new(config);
 
         // Execute
         let brand = manager.resolve_brand("generic").unwrap();
@@ -327,13 +344,10 @@ mod metadata_reading {
     fn test_resolve_template_with_minimal_metadata() {
         // Setup -- create a template with only the required 'name' field
         let temp_dir = tempfile::tempdir().unwrap();
-        let config = config_with_temp_dirs(temp_dir.path());
-        let template_dir = temp_dir.path().join("templates").join("minimal");
-        std::fs::create_dir_all(&template_dir).unwrap();
-        std::fs::write(template_dir.join("template.typ"), "// minimal template").unwrap();
-        std::fs::write(template_dir.join("metadata.toml"), "name = \"Minimal\"").unwrap();
+        let config = config_with_temp_local(temp_dir.path());
+        create_template(temp_dir.path(), "minimal", "Minimal");
 
-        let manager = TemplateManager::new(&config);
+        let manager = TemplateManager::new(config);
 
         // Execute
         let result = manager.resolve_template("minimal");
@@ -351,19 +365,18 @@ mod metadata_reading {
     fn test_resolve_template_with_malformed_metadata() {
         // Setup -- create a template with invalid TOML in metadata.toml
         let temp_dir = tempfile::tempdir().unwrap();
-        let config = config_with_temp_dirs(temp_dir.path());
+        let config = config_with_temp_local(temp_dir.path());
         let template_dir = temp_dir.path().join("templates").join("bad-meta");
         std::fs::create_dir_all(&template_dir).unwrap();
         std::fs::write(template_dir.join("template.typ"), "// template").unwrap();
         std::fs::write(template_dir.join("metadata.toml"), "name = [broken").unwrap();
 
-        let manager = TemplateManager::new(&config);
+        let manager = TemplateManager::new(config);
 
         // Execute
         let result = manager.resolve_template("bad-meta");
 
         // Assert -- may return error or fallback defaults depending on implementation
-        // Document whichever behavior the implementation chooses
         if result.is_err() {
             // Valid: malformed metadata causes an error
         } else {
@@ -375,41 +388,170 @@ mod metadata_reading {
 }
 
 // =========================================================================
-// Repository management
+// Multi-source template discovery
 // =========================================================================
 
-mod repo_management {
+mod multi_source_discovery {
     use super::*;
 
     #[test]
-    #[ignore] // Requires network access and git -- run manually
-    fn test_install_repo_clones_and_copies() {
+    fn test_discover_templates_from_local_source() {
+        // Setup -- create temp dir with templates/ subdir containing a template
         let temp_dir = tempfile::tempdir().unwrap();
-        let config = config_with_temp_dirs(temp_dir.path());
-        let manager = TemplateManager::new(&config);
+        create_template(temp_dir.path(), "my-template", "My Template");
 
-        let result = manager.install_repo("https://github.com/hendemic/md-docs-templates.git");
+        let config = config_with_temp_local(temp_dir.path());
+        let manager = TemplateManager::new(config);
 
-        assert!(result.is_ok(), "install should succeed: {:?}", result.err());
-        // Verify templates were copied
-        let templates = manager.discover_templates().unwrap();
-        assert!(!templates.is_empty(), "should have installed templates");
+        // Execute
+        let result = manager.discover_templates();
+
+        // Assert
+        assert!(result.is_ok(), "discover should succeed: {:?}", result.err());
+        let templates = result.unwrap();
+        assert_eq!(templates.len(), 1, "should find one template");
+        assert_eq!(templates[0].id, "my-template");
+        assert_eq!(templates[0].metadata.name, "My Template");
     }
 
     #[test]
-    fn test_remove_template_nonexistent_returns_error() {
-        // Setup
+    fn test_discover_brands_from_local_source() {
+        // Setup -- create temp dir with brands/ subdir containing a brand
         let temp_dir = tempfile::tempdir().unwrap();
-        let config = config_with_temp_dirs(temp_dir.path());
-        let manager = TemplateManager::new(&config);
+        create_brand(temp_dir.path(), "my-brand", "My Brand");
+
+        let config = config_with_temp_local(temp_dir.path());
+        let manager = TemplateManager::new(config);
 
         // Execute
-        let result = manager.remove_template("does-not-exist");
+        let result = manager.discover_brands();
 
         // Assert
+        assert!(result.is_ok(), "discover should succeed: {:?}", result.err());
+        let brands = result.unwrap();
+        assert_eq!(brands.len(), 1, "should find one brand");
+        assert_eq!(brands[0].id, "my-brand");
+        assert_eq!(brands[0].metadata.name, "My Brand");
+    }
+
+    #[test]
+    fn test_first_wins_precedence() {
+        // Setup -- two local sources with the same template name
+        let dir_a = tempfile::tempdir().unwrap();
+        let dir_b = tempfile::tempdir().unwrap();
+        create_template(dir_a.path(), "shared", "From Source A");
+        create_template(dir_b.path(), "shared", "From Source B");
+
+        // Config with two local sources; dir_a listed first
+        let toml_str = format!(
+            r#"
+[[local]]
+path = "{}"
+
+[[local]]
+path = "{}"
+"#,
+            dir_a.path().display(),
+            dir_b.path().display()
+        );
+        let config: Config = toml::from_str(&toml_str).unwrap();
+        let manager = TemplateManager::new(config);
+
+        // Execute
+        let result = manager.discover_templates();
+
+        // Assert -- first source should win for duplicate IDs
+        assert!(result.is_ok());
+        let templates = result.unwrap();
+        let shared: Vec<_> = templates.iter().filter(|t| t.id == "shared").collect();
         assert!(
-            result.is_err(),
-            "removing nonexistent template should return error"
+            !shared.is_empty(),
+            "should find the 'shared' template"
+        );
+        // First-wins means the template from dir_a should be the one kept
+        assert_eq!(
+            shared[0].metadata.name, "From Source A",
+            "first source should take precedence"
+        );
+    }
+
+    #[test]
+    fn test_resolve_template_across_sources() {
+        // Setup -- template only in second source
+        let dir_a = tempfile::tempdir().unwrap();
+        let dir_b = tempfile::tempdir().unwrap();
+        // dir_a has no templates
+        std::fs::create_dir_all(dir_a.path().join("templates")).unwrap();
+        std::fs::create_dir_all(dir_a.path().join("brands")).unwrap();
+        create_template(dir_b.path(), "only-in-b", "Only In B");
+        std::fs::create_dir_all(dir_b.path().join("brands")).unwrap();
+
+        let toml_str = format!(
+            r#"
+[[local]]
+path = "{}"
+
+[[local]]
+path = "{}"
+"#,
+            dir_a.path().display(),
+            dir_b.path().display()
+        );
+        let config: Config = toml::from_str(&toml_str).unwrap();
+        let manager = TemplateManager::new(config);
+
+        // Execute
+        let result = manager.resolve_template("only-in-b");
+
+        // Assert -- should find it in the second source
+        assert!(
+            result.is_ok(),
+            "template in second source should be resolvable: {:?}",
+            result.err()
+        );
+        let template = result.unwrap();
+        assert_eq!(template.id, "only-in-b");
+        assert_eq!(template.metadata.name, "Only In B");
+    }
+
+    #[test]
+    fn test_resolve_template_not_found_across_sources() {
+        // Setup -- no sources have the template
+        let dir_a = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir_a.path().join("templates")).unwrap();
+        std::fs::create_dir_all(dir_a.path().join("brands")).unwrap();
+
+        let config = config_with_temp_local(dir_a.path());
+        let manager = TemplateManager::new(config);
+
+        // Execute
+        let result = manager.resolve_template("nonexistent");
+
+        // Assert
+        assert!(result.is_err(), "should return error when template not found");
+    }
+
+    #[test]
+    fn test_source_label_populated() {
+        // Setup -- create a local source with a template
+        let temp_dir = tempfile::tempdir().unwrap();
+        create_template(temp_dir.path(), "labeled", "Labeled Template");
+
+        let config = config_with_temp_local(temp_dir.path());
+        let manager = TemplateManager::new(config);
+
+        // Execute
+        let result = manager.discover_templates();
+
+        // Assert
+        assert!(result.is_ok());
+        let templates = result.unwrap();
+        assert_eq!(templates.len(), 1);
+        assert!(
+            matches!(templates[0].source, TemplateSource::Local(_)),
+            "source should be TemplateSource::Local for local sources, got: {}",
+            templates[0].source
         );
     }
 }
+

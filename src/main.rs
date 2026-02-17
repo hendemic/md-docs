@@ -5,7 +5,7 @@
 
 mod cli;
 
-use md_docs::domain::CliMessage;
+use md_docs::app::CliMessage;
 
 fn main() {
     if let Err(err) = cli::run() {

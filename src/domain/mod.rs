@@ -1,95 +1,86 @@
-//! Pure data model for md-docs.
-//!
-//! This module defines all types used across the application. It has NO dependencies
-//! on the `app` or `cli` layers and performs NO I/O. All types here are pure data
-//! with basic construction, access, and manipulation methods.
-//!
-//! # Module dependency graph
-//! ```text
-//! domain.rs  <--  app/  <--  cli.rs
-//! (this file)     |           |
-//!                 |           +-- uses domain types + app controller
-//!                 +-- uses domain types only
-//! ```
+//! Pure data model for md-docs. No I/O, no dependencies on `app` or `cli`.
 
 use std::collections::HashMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use colored::Colorize;
 use serde::Deserialize;
 
 // ---------------------------------------------------------------------------
 // Error types
 // ---------------------------------------------------------------------------
 
-/// All domain-level errors that can occur in md-docs.
-///
-/// These represent logical failures in the application, not I/O errors.
-/// I/O errors are wrapped by `anyhow` at the app layer.
+/// Domain-level errors.
 #[derive(Debug, thiserror::Error)]
 pub enum MdDocsError {
-    /// The requested template was not found in any configured directory.
     #[error("template not found: {0}")]
     TemplateNotFound(String),
 
-    /// The requested brand was not found in any configured directory.
     #[error("brand not found: {0}")]
     BrandNotFound(String),
 
-    /// The input markdown file does not exist or is not readable.
     #[error("input file not found: {0}")]
     InputNotFound(PathBuf),
 
-    /// YAML frontmatter could not be parsed.
     #[error("invalid frontmatter: {0}")]
     InvalidFrontmatter(String),
 
-    /// A modifier definition in modifiers.toml is malformed.
-    #[error("invalid modifier definition: {0}")]
-    InvalidModifier(String),
-
-    /// Typst compilation produced errors.
-    #[error("typst compilation failed: {0}")]
-    CompilationFailed(String),
-
-    /// Configuration file is malformed.
-    #[error("invalid configuration: {0}")]
-    InvalidConfig(String),
-
-    /// Template repository operation failed (install/update/remove).
     #[error("repository operation failed: {0}")]
     RepoOperationFailed(String),
+}
 
-    /// A template is user-managed and cannot be removed via the repo commands.
-    #[error("cannot remove user-managed template: {0}")]
-    UserManagedTemplate(String),
+// ---------------------------------------------------------------------------
+// Multi-source types
+// ---------------------------------------------------------------------------
+
+/// Default repository URL for templates and brands.
+pub const DEFAULT_REPO_URL: &str = "https://github.com/hendemic/md-docs-templates.git";
+
+/// Default repository name used when no name is specified.
+pub const DEFAULT_REPO_NAME: &str = "default";
+
+/// A named git repository source.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RepoSource {
+    pub name: String,
+    pub url: String,
+}
+
+/// A local directory source.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LocalSource {
+    pub path: PathBuf,
+}
+
+/// Where a template or brand was discovered from.
+#[derive(Debug, Clone)]
+pub enum TemplateSource {
+    Repo(String),
+    Local(PathBuf),
+}
+
+impl fmt::Display for TemplateSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Repo(name) => write!(f, "repo:{}", name),
+            Self::Local(path) => write!(f, "local:{}", path.display()),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Document model
 // ---------------------------------------------------------------------------
 
-/// A parsed markdown document with extracted frontmatter and content sections.
-///
-/// The document is split into:
-/// - `metadata`: YAML frontmatter key-value pairs (title, author, date, etc.)
-/// - `sections`: the content split into header/body by the COLUMNS_START marker
-/// - `raw_body`: the raw markdown text after frontmatter extraction
+/// A parsed markdown document with frontmatter and content sections.
 #[derive(Debug, Clone)]
 pub struct Document {
-    /// Frontmatter metadata extracted from the YAML block.
     pub metadata: Metadata,
-
-    /// The content sections (header, body, full content) after markdown-to-Typst conversion.
     pub sections: ContentSections,
-
-    /// The raw markdown body text (after frontmatter has been stripped).
     pub raw_body: String,
 }
 
 impl Document {
-    /// Create a new document from parsed frontmatter and raw markdown body.
     pub fn new(metadata: Metadata, raw_body: String) -> Self {
         Self {
             metadata,
@@ -99,34 +90,17 @@ impl Document {
     }
 }
 
-/// Frontmatter metadata extracted from the YAML block at the top of a markdown file.
-///
-/// Common fields (title, author, date) are first-class. Additional arbitrary
-/// key-value pairs are captured in `extra` for template pass-through.
-/// The `extra` map uses `serde_yml::Value` to support non-string YAML values
-/// (lists, numbers, nested objects).
+/// YAML frontmatter metadata. Extra keys are passed through to templates.
 #[derive(Debug, Clone, Default)]
 pub struct Metadata {
-    /// Document title (e.g., a person's name for a resume).
     pub title: Option<String>,
-
-    /// Document author.
     pub author: Option<String>,
-
-    /// Date string (free-form, e.g. "February 2026").
     pub date: Option<String>,
-
-    /// Any additional frontmatter keys not captured above.
-    /// Uses `serde_yml::Value` to preserve non-string types (lists, numbers, etc.).
     pub extra: HashMap<String, serde_yml::Value>,
 }
 
 impl Metadata {
-    /// Parse a YAML frontmatter string into a Metadata struct.
-    ///
-    /// Returns the metadata and the remaining markdown content after the
-    /// frontmatter block (`---` delimiters). The returned String is owned
-    /// because the caller needs to store it independently of the input.
+    /// Parse YAML frontmatter, returning metadata and the remaining body.
     pub fn parse_from_content(content: &str) -> Result<(Self, String), MdDocsError> {
         // Check if content starts with a frontmatter delimiter
         if !content.starts_with("---\n") {
@@ -203,28 +177,12 @@ impl Metadata {
     }
 }
 
-/// The three content sections that templates consume.
-///
-/// Templates import `content.typ` which exports `header`, `body`, `content`,
-/// and `body-columns`. The split happens at the `COLUMNS_START` modifier marker,
-/// and body is further split at `COLUMN_BREAK` markers into `body_columns`.
+/// Content sections split at COLUMNS_START and COLUMN_BREAK markers.
 #[derive(Debug, Clone, Default)]
 pub struct ContentSections {
-    /// Typst markup for everything above the column split marker.
-    /// If no split marker exists, this is empty.
     pub header: String,
-
-    /// Typst markup for everything below the column split marker,
-    /// with `%%COLUMN_BREAK%%` markers stripped.
-    /// If no split marker exists, this contains all content.
     pub body: String,
-
-    /// Full Typst markup (header + body combined), with `%%COLUMN_BREAK%%` markers stripped.
-    /// Always populated.
     pub content: String,
-
-    /// Body content split into per-column segments at `%%COLUMN_BREAK%%` markers.
-    /// If no column break markers exist, contains the entire body as a single element.
     pub body_columns: Vec<String>,
 }
 
@@ -232,17 +190,7 @@ pub struct ContentSections {
 const COLUMN_BREAK_MARKER: &str = "%%COLUMN_BREAK%%";
 
 impl ContentSections {
-    /// Split converted Typst content at the COLUMNS_START marker, then further
-    /// split the body at `%%COLUMN_BREAK%%` markers into `body_columns`.
-    ///
-    /// If the COLUMNS_START marker is present, content above goes to `header`
-    /// and below to `body`. If absent, everything goes to `body` and `header`
-    /// is empty.
-    ///
-    /// The `body` and `content` fields have all `%%COLUMN_BREAK%%` markers stripped.
-    /// The `body_columns` vector contains each column segment (trimmed). If no
-    /// column break markers exist, `body_columns` contains the entire body as
-    /// a single element.
+    /// Split Typst content at the given split marker and column break markers.
     pub fn from_typst_content(typst_content: &str, split_marker: &str) -> Self {
         if let Some(pos) = typst_content.find(split_marker) {
             let header = typst_content[..pos].trim().to_string();
@@ -290,86 +238,48 @@ impl ContentSections {
 // Modifier system
 // ---------------------------------------------------------------------------
 
-/// The type of a content modifier: where it appears in the markdown.
+/// Whether a modifier is inline or block-level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModifierType {
-    /// Appears inline within text (e.g., ` /| ` for date separators).
     Inline,
-
-    /// Appears as a standalone block (HTML comment, e.g., `<!-- COLUMN_BREAK -->`).
     Block,
 }
 
-/// What to do with a modifier when a template ignores it.
+/// Fallback behavior when a template ignores a modifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OnIgnore {
-    /// Silently drop the modifier from the output.
     Remove,
-
-    /// Replace the modifier with a line break.
     Newline,
-
-    /// Leave the raw marker text in the output unchanged.
     Keep,
 }
 
-/// A modifier definition as loaded from `modifiers.toml`.
-///
-/// Modifiers transform special markers in markdown into Typst commands.
-/// Each has a marker string, its Typst output, and fallback behavior
-/// when a template chooses to ignore it.
+/// A modifier definition from `modifiers.toml`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ModifierDef {
-    /// The marker string the user writes in markdown (e.g., ` /| ` or `<!-- COLUMN_BREAK -->`).
     pub marker: String,
-
-    /// Human-readable description of what this modifier does.
     pub description: String,
-
-    /// The Typst markup this modifier produces (e.g., ` #h(1fr) `).
     pub typst: String,
-
-    /// What happens when a template lists this modifier in its `ignore` list.
     pub on_ignore: OnIgnore,
-
-    /// Whether this is an inline or block modifier.
     #[serde(rename = "type")]
     pub modifier_type: ModifierType,
 }
 
-/// A resolved modifier ready for use during conversion.
-///
-/// After cross-referencing a modifier definition with the template's ignore list,
-/// this struct holds the effective output. If the template ignores this modifier,
-/// `effective_typst` reflects the `on_ignore` behavior instead of the normal output.
+/// A modifier resolved against a template's ignore list.
 #[derive(Debug, Clone)]
 pub struct ResolvedModifier {
-    /// The modifier's identifier (its key in modifiers.toml).
     pub id: String,
-
-    /// The marker string to search for in the markdown/Typst output.
     pub marker: String,
-
-    /// The effective Typst output after considering the template's ignore list.
-    /// `None` means "keep the marker as-is" (on_ignore = keep).
+    /// `None` means keep the marker as-is (on_ignore = keep).
     pub effective_typst: Option<String>,
-
-    /// Whether this is an inline or block modifier.
     pub modifier_type: ModifierType,
 }
 
-/// The full set of modifier definitions loaded from modifiers.toml.
-///
-/// Keyed by modifier id (e.g., "date_separator", "column_break").
+/// All modifier definitions, keyed by modifier id.
 pub type ModifierRegistry = HashMap<String, ModifierDef>;
 
-/// Resolve a modifier registry against a template's ignore list.
-///
-/// For each modifier, if the template ignores it, the effective output is
-/// determined by the modifier's `on_ignore` field. Otherwise the normal
-/// `typst` output is used.
+/// Resolve modifiers against a template's ignore list.
 pub fn resolve_modifiers(registry: &ModifierRegistry, ignore_list: &[String]) -> Vec<ResolvedModifier> {
     use std::collections::HashSet;
 
@@ -402,39 +312,25 @@ pub fn resolve_modifiers(registry: &ModifierRegistry, ignore_list: &[String]) ->
 // Template and Brand
 // ---------------------------------------------------------------------------
 
-/// Metadata for a template, loaded from `metadata.toml` in the template directory.
+/// Template metadata from `metadata.toml`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct TemplateMetadata {
-    /// Human-readable template name (e.g., "Resume (Two Column)").
     pub name: String,
-
-    /// Short description of the template's purpose.
     pub description: Option<String>,
-
-    /// The brand to use if the user doesn't specify one.
     pub default_brand: Option<String>,
-
-    /// List of modifier IDs that this template does not support.
-    /// These modifiers will use their `on_ignore` behavior during conversion.
     #[serde(default)]
     pub ignore: Vec<String>,
-
-    /// Optional starter markdown file included with the template.
     #[serde(default)]
     pub starter_file: Option<String>,
 }
 
-/// A discovered template with its filesystem location and parsed metadata.
+/// A discovered template with location and metadata.
 #[derive(Debug, Clone)]
 pub struct Template {
-    /// The template's short identifier (directory name, e.g., "resume-2-col").
     pub id: String,
-
-    /// Absolute path to the template directory.
     pub path: PathBuf,
-
-    /// Parsed metadata from the template's `metadata.toml`.
     pub metadata: TemplateMetadata,
+    pub source: TemplateSource,
 }
 
 impl fmt::Display for Template {
@@ -446,43 +342,20 @@ impl fmt::Display for Template {
     }
 }
 
-impl Template {
-    /// Format for colored terminal selector output.
-    /// Cyan name, bold id, dimmed description.
-    pub fn colored_display(&self) -> String {
-        match &self.metadata.description {
-            Some(desc) => format!(
-                "{} ({}) -- {}",
-                self.metadata.name.cyan(),
-                self.id.bold(),
-                desc.dimmed()
-            ),
-            None => format!("{} ({})", self.metadata.name.cyan(), self.id.bold()),
-        }
-    }
-}
-
-/// Metadata for a brand, loaded from `metadata.toml` in the brand directory.
+/// Brand metadata from `metadata.toml`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct BrandMetadata {
-    /// Human-readable brand name (e.g., "Generic").
     pub name: String,
-
-    /// Short description of the brand.
     pub description: Option<String>,
 }
 
-/// A discovered brand with its filesystem location and parsed metadata.
+/// A discovered brand with location and metadata.
 #[derive(Debug, Clone)]
 pub struct Brand {
-    /// The brand's short identifier (directory name, e.g., "generic").
     pub id: String,
-
-    /// Absolute path to the brand directory.
     pub path: PathBuf,
-
-    /// Parsed metadata from the brand's `metadata.toml`.
     pub metadata: BrandMetadata,
+    pub source: TemplateSource,
 }
 
 impl fmt::Display for Brand {
@@ -494,129 +367,41 @@ impl fmt::Display for Brand {
     }
 }
 
-impl Brand {
-    /// Format for colored terminal selector output.
-    pub fn colored_display(&self) -> String {
-        match &self.metadata.description {
-            Some(desc) => format!(
-                "{} ({}) -- {}",
-                self.metadata.name.cyan(),
-                self.id.bold(),
-                desc.dimmed()
-            ),
-            None => format!("{} ({})", self.metadata.name.cyan(), self.id.bold()),
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
-/// Application configuration assembled from layered sources.
-///
-/// Resolution order (later overrides earlier):
-/// 1. Built-in defaults
-/// 2. Global config: `~/.config/md-docs/config.toml`
-/// 3. Project config: `.md-docs.toml` in the current directory
-/// 4. CLI arguments
-///
-/// All fields are private. Use accessor methods to get effective values
-/// with XDG defaults as fallbacks.
+/// Layered application configuration (defaults < global < project < CLI).
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Config {
-    /// Default template name to use when none is specified.
     pub(crate) default_template: Option<String>,
-
-    /// Default brand name to use when none is specified.
     pub(crate) default_brand: Option<String>,
-
-    /// Directory containing installed templates.
-    pub(crate) templates_dir: Option<PathBuf>,
-
-    /// Directory containing installed brands.
-    pub(crate) brands_dir: Option<PathBuf>,
-
-    /// Default output directory for generated PDFs.
     pub(crate) output_dir: Option<PathBuf>,
-
-    /// Default author name injected into metadata when frontmatter doesn't specify one.
     pub(crate) author: Option<String>,
+    #[serde(default)]
+    pub(crate) repos: Vec<RepoSource>,
+    #[serde(default)]
+    pub(crate) local: Vec<LocalSource>,
 }
 
 impl Config {
-    /// Return the effective templates directory, falling back to the XDG data default.
-    pub fn effective_templates_dir(&self) -> PathBuf {
-        self.templates_dir.clone().unwrap_or_else(|| {
-            dirs::data_dir()
-                .unwrap_or_else(|| {
-                    PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                        .join(".local/share")
-                })
-                .join("md-docs/templates")
-        })
-    }
-
-    /// Return the effective brands directory, falling back to the XDG data default.
-    pub fn effective_brands_dir(&self) -> PathBuf {
-        self.brands_dir.clone().unwrap_or_else(|| {
-            dirs::data_dir()
-                .unwrap_or_else(|| {
-                    PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                        .join(".local/share")
-                })
-                .join("md-docs/brands")
-        })
-    }
-
-    /// Return the configured default template name, if any.
-    pub fn default_template(&self) -> Option<&str> {
-        self.default_template.as_deref()
-    }
-
-    /// Return the configured default brand name, if any.
-    pub fn default_brand(&self) -> Option<&str> {
-        self.default_brand.as_deref()
-    }
-
-    /// Return the configured output directory, if any.
-    pub fn output_dir(&self) -> Option<&PathBuf> {
-        self.output_dir.as_ref()
-    }
-
-    /// Return the configured default author name, if any.
-    pub fn author(&self) -> Option<&str> {
-        self.author.as_deref()
-    }
-
-    /// Return a reference to the raw templates_dir option (for config merging).
-    pub fn raw_templates_dir(&self) -> Option<&PathBuf> {
-        self.templates_dir.as_ref()
-    }
-
-    /// Return a reference to the raw brands_dir option (for config merging).
-    pub fn raw_brands_dir(&self) -> Option<&PathBuf> {
-        self.brands_dir.as_ref()
-    }
+    pub fn default_template(&self) -> Option<&str> { self.default_template.as_deref() }
+    pub fn default_brand(&self) -> Option<&str> { self.default_brand.as_deref() }
+    pub fn output_dir(&self) -> Option<&Path> { self.output_dir.as_deref() }
+    pub fn author(&self) -> Option<&str> { self.author.as_deref() }
+    pub fn repos(&self) -> &[RepoSource] { &self.repos }
+    pub fn local(&self) -> &[LocalSource] { &self.local }
 }
 
 // ---------------------------------------------------------------------------
 // Typst content escaping
 // ---------------------------------------------------------------------------
 
-/// Characters that have special meaning in Typst markup mode and may need escaping.
 const TYPST_SPECIAL_CHARS: &[char] = &[
     '*', '_', '`', '<', '@', '=', '#', '$', '~', '\\', '/', '+', '-',
 ];
 
-/// Escape special Typst characters in plain text.
-///
-/// In Typst markup mode (inside `[...]`), certain characters trigger special
-/// behavior. This function prefixes them with `\` to produce literal output.
-///
-/// Note: Context matters -- not all occurrences need escaping. This function
-/// is conservative and escapes all potential special characters. The builder
-/// should refine this based on integration testing.
+/// Escape special Typst markup characters with backslash prefix.
 pub fn escape_typst(text: &str) -> String {
     let mut result = String::with_capacity(text.len() * 2);
     for ch in text.chars() {
@@ -632,22 +417,14 @@ pub fn escape_typst(text: &str) -> String {
 // Markdown to Typst conversion types
 // ---------------------------------------------------------------------------
 
-/// Configuration for the markdown-to-Typst converter.
-///
-/// Bundles the resolved modifiers and any conversion options needed
-/// by the pulldown-cmark event processor.
+/// Resolved modifiers partitioned for the converter.
 #[derive(Debug, Clone)]
 pub struct ConversionContext {
-    /// Block modifiers: maps HTML comment marker -> Typst output.
-    /// Used during markdown event processing.
     pub block_modifiers: HashMap<String, Option<String>>,
-
-    /// Inline modifiers: applied as text substitutions after conversion.
     pub inline_modifiers: Vec<ResolvedModifier>,
 }
 
 impl ConversionContext {
-    /// Build a conversion context from a list of resolved modifiers.
     pub fn from_resolved(modifiers: &[ResolvedModifier]) -> Self {
         let mut block_modifiers = HashMap::new();
         let mut inline_modifiers = Vec::new();
@@ -667,79 +444,6 @@ impl ConversionContext {
             block_modifiers,
             inline_modifiers,
         }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// CLI output messages
-// ---------------------------------------------------------------------------
-
-/// A CLI output message with semantic level.
-///
-/// All user-facing output goes through this enum so the CLI has
-/// a unified visual style. Each variant maps to a color and prefix.
-///
-/// # Routing
-/// - `Success`, `Info`, `Log`, `Plain` -> stdout
-/// - `Warning`, `Error` -> stderr
-#[derive(Debug, Clone)]
-pub enum CliMessage {
-    /// Operation completed successfully. Green prefix "✓".
-    Success(String),
-
-    /// Informational status message. Cyan, no prefix.
-    Info(String),
-
-    /// Debug/verbose detail. Dimmed, only shown when --verbose is set.
-    Log(String),
-
-    /// Non-fatal issue. Yellow prefix "warning:".
-    Warning(String),
-
-    /// Fatal error message. Red prefix "error:".
-    Error(String),
-
-    /// Pre-formatted output. Printed to stdout as-is, no additional coloring.
-    Plain(String),
-}
-
-impl CliMessage {
-    /// Format this message with colors and prefix for terminal display.
-    pub fn formatted(&self) -> String {
-        match self {
-            CliMessage::Success(msg) => format!("{} {}", "✓".green().bold(), msg),
-            CliMessage::Info(msg) => format!("{}", msg.cyan()),
-            CliMessage::Log(msg) => format!("{}", msg.dimmed()),
-            CliMessage::Warning(msg) => format!("{} {}", "warning:".yellow().bold(), msg),
-            CliMessage::Error(msg) => format!("{} {}", "error:".red().bold(), msg),
-            CliMessage::Plain(msg) => msg.clone(),
-        }
-    }
-
-    /// Print this message to the appropriate stream (stdout or stderr).
-    ///
-    /// `Log` messages are only printed when `verbose` is true.
-    /// All other variants always print.
-    pub fn print(&self, verbose: bool) {
-        match self {
-            CliMessage::Log(_) => {
-                if verbose {
-                    println!("{}", self.formatted());
-                }
-            }
-            CliMessage::Warning(_) | CliMessage::Error(_) => {
-                eprintln!("{}", self.formatted());
-            }
-            _ => {
-                println!("{}", self.formatted());
-            }
-        }
-    }
-}
-
-impl std::fmt::Display for CliMessage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.formatted())
     }
 }
 

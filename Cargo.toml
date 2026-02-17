@@ -1,14 +1,19 @@
 [package]
 name = "md-docs"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 description = "Convert Markdown files into professional PDFs using Typst templates"
 license = "MIT"
 
+[[bin]]
+name = "mdocs"
+path = "src/main.rs"
+
 [dependencies]
 # Typst compilation
 typst = "0.14"
-typst-as-lib = { version = "0.15", features = ["typst-kit-fonts", "typst-kit-embed-fonts"] }
+# typst-kit-fonts provides search_fonts_with() API for system font discovery
+typst-as-lib = { version = "0.15", features = ["typst-kit-fonts"] }
 typst-pdf = "0.14"
 
 # Markdown parsing
@@ -24,10 +29,22 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 serde_yml = "0.0.12"
 
+# Serialization (JSON)
+serde_json = "1"
+
 # Error handling
 anyhow = "1"
 thiserror = "2"
 
+# Self-update
+ureq = "3"
+semver = "1"
+
 # Filesystem
-dirs = "6"
 tempfile = "3"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "z"

@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use md_docs::app::compiler;
+use md_docs::infra::compiler;
 use md_docs::domain::{
     Brand, BrandMetadata, ContentSections, Document, Metadata, Template, TemplateMetadata,
+    TemplateSource,
 };
 
 // =========================================================================
@@ -51,6 +52,9 @@ fn real_template() -> Template {
             ignore: vec![],
             starter_file: None,
         },
+        source: TemplateSource::Local(PathBuf::from(
+            "/home/hendemic/Documents/Projects/md-docs/md-docs-templates",
+        )),
     }
 }
 
@@ -64,6 +68,9 @@ fn real_brand() -> Brand {
             name: "Generic".to_string(),
             description: Some("Clean defaults".to_string()),
         },
+        source: TemplateSource::Local(PathBuf::from(
+            "/home/hendemic/Documents/Projects/md-docs/md-docs-templates",
+        )),
     }
 }
 
@@ -260,6 +267,7 @@ mod typst_compilation {
                 ignore: vec![],
                 starter_file: None,
             },
+            source: TemplateSource::Local(PathBuf::from("/nonexistent")),
         };
         let brand = real_brand();
         let temp_dir = tempfile::tempdir().unwrap();
@@ -285,6 +293,7 @@ mod typst_compilation {
                 name: "Nonexistent".to_string(),
                 description: None,
             },
+            source: TemplateSource::Local(PathBuf::from("/nonexistent")),
         };
         let temp_dir = tempfile::tempdir().unwrap();
         let output_path = temp_dir.path().join("fail.pdf");
@@ -340,6 +349,9 @@ mod full_pipeline {
                 ignore: vec!["date_separator".to_string(), "column_break".to_string()],
                 starter_file: None,
             },
+            source: TemplateSource::Local(PathBuf::from(
+                "/home/hendemic/Documents/Projects/md-docs/md-docs-templates",
+            )),
         };
         let brand = real_brand();
         let temp_dir = tempfile::tempdir().unwrap();

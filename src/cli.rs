@@ -19,7 +19,7 @@ use md_docs::app::AppController;
 
 /// md-docs: Generate professional documents from Markdown using Typst templates.
 #[derive(Debug, Parser)]
-#[command(name = "md-docs", version, about, long_about = None)]
+#[command(name = "mdocs", version, about, long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -62,6 +62,13 @@ pub enum Commands {
         action: BrandCommands,
     },
 
+    /// Check for updates and update md-docs to the latest version.
+    Update {
+        /// Only check for updates, don't install.
+        #[arg(long)]
+        check: bool,
+    },
+
     /// Show current configuration (layered: defaults <- global <- project <- CLI).
     Config,
 
@@ -86,26 +93,25 @@ pub enum Commands {
 /// Subcommands for template management.
 #[derive(Debug, Subcommand)]
 pub enum TemplateCommands {
-    /// List all available templates with metadata.
+    /// List all available templates with metadata and source.
     List,
 
-    /// Install templates (defaults to official repo, or specify a custom URL).
+    /// Install template repos from config. Installs all repos if no name given.
     Install {
-        /// Custom git repository URL. Uses the official repo if omitted.
-        #[arg(short, long)]
-        uri: Option<String>,
-    },
-
-    /// Update installed templates (git pull).
-    Update {
-        /// Specific template name to update. Updates all if omitted.
+        /// Specific repo name to install. Installs all if omitted.
         name: Option<String>,
     },
 
-    /// Remove an installed template.
-    Remove {
-        /// Template name to remove.
-        name: String,
+    /// Update installed template repos (git pull). Updates all if no name given.
+    Update {
+        /// Specific repo name to update. Updates all if omitted.
+        name: Option<String>,
+    },
+
+    /// Add a template source (git repo URL or local directory path) to config.
+    Add {
+        /// Git repo URL or local directory path.
+        source: String,
     },
 }
 
@@ -142,14 +148,16 @@ pub fn run() -> anyhow::Result<()> {
 
         Commands::Templates { action } => match action {
             TemplateCommands::List => controller.list_templates(),
-            TemplateCommands::Install { uri } => controller.install_templates(uri),
+            TemplateCommands::Install { name } => controller.install_templates(name),
             TemplateCommands::Update { name } => controller.update_templates(name),
-            TemplateCommands::Remove { name } => controller.remove_template(&name),
+            TemplateCommands::Add { source } => controller.add_source(&source),
         },
 
         Commands::Brands { action } => match action {
             BrandCommands::List => controller.list_brands(),
         },
+
+        Commands::Update { check } => controller.self_update(check),
 
         Commands::Config => controller.show_config(),
 

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::*;
 
@@ -143,7 +143,6 @@ mod metadata_parsing {
         let result = Metadata::parse_from_content(content);
 
         // Assert -- should either treat as no frontmatter or return the text
-        // The implementation decides: either Ok with empty metadata or parses what it can
         assert!(result.is_ok());
     }
 
@@ -398,7 +397,6 @@ mod typst_escaping {
         assert!(result.contains("\\*"));
         assert!(result.contains("\\_"));
         assert!(result.contains("\\#"));
-        // Should not contain unescaped versions at the start of words
     }
 
     #[test]
@@ -503,7 +501,6 @@ mod modifier_resolution {
 
         // Assert
         let column_break = resolved.iter().find(|r| r.id == "column_break").unwrap();
-        // on_ignore = Remove means effective_typst should be Some("") (empty replacement)
         assert_eq!(column_break.effective_typst.as_deref(), Some(""));
     }
 
@@ -518,7 +515,6 @@ mod modifier_resolution {
 
         // Assert
         let date_sep = resolved.iter().find(|r| r.id == "date_separator").unwrap();
-        // on_ignore = Newline means effective_typst should be a line break equivalent
         let effective = date_sep.effective_typst.as_deref().unwrap();
         assert!(
             effective.contains('\n') || effective.contains("linebreak") || effective.contains("#v("),
@@ -702,71 +698,157 @@ mod conversion_context {
 }
 
 // =========================================================================
-// Config accessors
+// RepoSource deserialization
+// =========================================================================
+
+mod repo_source_deserialization {
+    use super::*;
+
+    #[test]
+    fn test_repo_source_deserializes_from_toml() {
+        // Setup
+        let toml_str = r#"
+[[repos]]
+name = "default"
+url = "https://github.com/hendemic/md-docs-templates.git"
+"#;
+
+        // Execute
+        let config: Config = toml::from_str(toml_str).unwrap();
+
+        // Assert
+        assert_eq!(config.repos().len(), 1);
+        assert_eq!(config.repos()[0].name, "default");
+        assert_eq!(config.repos()[0].url, "https://github.com/hendemic/md-docs-templates.git");
+    }
+
+    #[test]
+    fn test_multiple_repos_deserialize() {
+        // Setup
+        let toml_str = r#"
+[[repos]]
+name = "default"
+url = "https://github.com/hendemic/md-docs-templates.git"
+
+[[repos]]
+name = "custom"
+url = "https://github.com/example/custom-templates.git"
+"#;
+
+        // Execute
+        let config: Config = toml::from_str(toml_str).unwrap();
+
+        // Assert
+        assert_eq!(config.repos().len(), 2);
+        assert_eq!(config.repos()[0].name, "default");
+        assert_eq!(config.repos()[1].name, "custom");
+        assert_eq!(config.repos()[1].url, "https://github.com/example/custom-templates.git");
+    }
+}
+
+// =========================================================================
+// LocalSource deserialization
+// =========================================================================
+
+mod local_source_deserialization {
+    use super::*;
+
+    #[test]
+    fn test_local_source_deserializes_from_toml() {
+        // Setup
+        let toml_str = r#"
+[[local]]
+path = "/home/user/my-templates"
+"#;
+
+        // Execute
+        let config: Config = toml::from_str(toml_str).unwrap();
+
+        // Assert
+        assert_eq!(config.local().len(), 1);
+        assert_eq!(config.local()[0].path, PathBuf::from("/home/user/my-templates"));
+    }
+
+    #[test]
+    fn test_multiple_locals_deserialize() {
+        // Setup
+        let toml_str = r#"
+[[local]]
+path = "/home/user/templates-a"
+
+[[local]]
+path = "/home/user/templates-b"
+"#;
+
+        // Execute
+        let config: Config = toml::from_str(toml_str).unwrap();
+
+        // Assert
+        assert_eq!(config.local().len(), 2);
+        assert_eq!(config.local()[0].path, PathBuf::from("/home/user/templates-a"));
+        assert_eq!(config.local()[1].path, PathBuf::from("/home/user/templates-b"));
+    }
+}
+
+// =========================================================================
+// Config new format
+// =========================================================================
+
+mod config_new_format {
+    use super::*;
+
+    #[test]
+    fn test_config_with_repos_and_local() {
+        // Setup
+        let toml_str = r#"
+default_template = "resume-2-col"
+default_brand = "generic"
+author = "Test Author"
+output_dir = "/home/user/output"
+
+[[repos]]
+name = "default"
+url = "https://github.com/hendemic/md-docs-templates.git"
+
+[[local]]
+path = "/home/user/my-templates"
+"#;
+
+        // Execute
+        let config: Config = toml::from_str(toml_str).unwrap();
+
+        // Assert
+        assert_eq!(config.default_template(), Some("resume-2-col"));
+        assert_eq!(config.default_brand(), Some("generic"));
+        assert_eq!(config.author(), Some("Test Author"));
+        assert_eq!(config.output_dir(), Some(Path::new("/home/user/output")));
+        assert_eq!(config.repos().len(), 1);
+        assert_eq!(config.repos()[0].name, "default");
+        assert_eq!(config.local().len(), 1);
+        assert_eq!(config.local()[0].path, PathBuf::from("/home/user/my-templates"));
+    }
+
+    #[test]
+    fn test_empty_config_has_empty_vecs() {
+        // Setup
+        let toml_str = "";
+
+        // Execute
+        let config: Config = toml::from_str(toml_str).unwrap();
+
+        // Assert
+        assert!(config.repos().is_empty());
+        assert!(config.local().is_empty());
+    }
+
+}
+
+// =========================================================================
+// Config accessors (kept: default_template, default_brand, author, output_dir)
 // =========================================================================
 
 mod config_accessors {
     use super::*;
-
-    #[test]
-    fn test_effective_templates_dir_with_override() {
-        // Setup -- Config with an explicit templates_dir set
-        let toml_str = r#"templates_dir = "/custom/templates""#;
-        let config: Config = toml::from_str(toml_str).unwrap();
-
-        // Execute
-        let result = config.effective_templates_dir();
-
-        // Assert
-        assert_eq!(result, PathBuf::from("/custom/templates"));
-    }
-
-    #[test]
-    fn test_effective_templates_dir_without_override_uses_xdg() {
-        // Setup -- Config with no templates_dir (uses default)
-        let config = Config::default();
-
-        // Execute
-        let result = config.effective_templates_dir();
-
-        // Assert -- should be XDG_DATA_HOME/md-docs/templates or similar
-        let result_str = result.to_string_lossy();
-        assert!(
-            result_str.contains("md-docs") && result_str.contains("templates"),
-            "default templates dir should contain 'md-docs' and 'templates': got '{}'",
-            result_str
-        );
-    }
-
-    #[test]
-    fn test_effective_brands_dir_with_override() {
-        // Setup
-        let toml_str = r#"brands_dir = "/custom/brands""#;
-        let config: Config = toml::from_str(toml_str).unwrap();
-
-        // Execute
-        let result = config.effective_brands_dir();
-
-        // Assert
-        assert_eq!(result, PathBuf::from("/custom/brands"));
-    }
-
-    #[test]
-    fn test_effective_brands_dir_without_override_uses_xdg() {
-        // Setup
-        let config = Config::default();
-
-        // Execute
-        let result = config.effective_brands_dir();
-
-        // Assert
-        let result_str = result.to_string_lossy();
-        assert!(
-            result_str.contains("md-docs") && result_str.contains("brands"),
-            "default brands dir should contain 'md-docs' and 'brands': got '{}'",
-            result_str
-        );
-    }
 
     #[test]
     fn test_default_template_accessor() {
@@ -804,12 +886,41 @@ mod config_accessors {
         let config: Config = toml::from_str(toml_str).unwrap();
 
         // Execute & Assert
-        assert_eq!(config.output_dir(), Some(&PathBuf::from("/home/user/output")));
+        assert_eq!(config.output_dir(), Some(Path::new("/home/user/output")));
+    }
+
+    #[test]
+    fn test_repos_accessor() {
+        // Setup
+        let toml_str = r#"
+[[repos]]
+name = "test"
+url = "https://example.com/test.git"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+
+        // Execute & Assert
+        assert_eq!(config.repos().len(), 1);
+        assert_eq!(config.repos()[0].name, "test");
+    }
+
+    #[test]
+    fn test_local_accessor() {
+        // Setup
+        let toml_str = r#"
+[[local]]
+path = "/tmp/templates"
+"#;
+        let config: Config = toml::from_str(toml_str).unwrap();
+
+        // Execute & Assert
+        assert_eq!(config.local().len(), 1);
+        assert_eq!(config.local()[0].path, PathBuf::from("/tmp/templates"));
     }
 }
 
 // =========================================================================
-// Display impls
+// Display impls (updated for source field)
 // =========================================================================
 
 mod display_impls {
@@ -828,6 +939,7 @@ mod display_impls {
                 ignore: vec![],
                 starter_file: None,
             },
+            source: TemplateSource::Repo("default".to_string()),
         };
 
         // Execute
@@ -852,6 +964,7 @@ mod display_impls {
                 ignore: vec![],
                 starter_file: None,
             },
+            source: TemplateSource::Local(PathBuf::from("/dev/templates")),
         };
 
         // Execute
@@ -873,6 +986,7 @@ mod display_impls {
                 name: "Generic".to_string(),
                 description: Some("Clean defaults".to_string()),
             },
+            source: TemplateSource::Repo("default".to_string()),
         };
 
         // Execute
@@ -894,6 +1008,7 @@ mod display_impls {
                 name: "Custom Brand".to_string(),
                 description: None,
             },
+            source: TemplateSource::Local(PathBuf::from("/dev/brands")),
         };
 
         // Execute
@@ -944,31 +1059,10 @@ mod error_display {
     }
 
     #[test]
-    fn test_compilation_failed_error_message() {
-        let err = MdDocsError::CompilationFailed("missing font".to_string());
-        let msg = format!("{}", err);
-        assert!(msg.contains("typst compilation failed"));
-    }
-
-    #[test]
-    fn test_invalid_config_error_message() {
-        let err = MdDocsError::InvalidConfig("bad toml".to_string());
-        let msg = format!("{}", err);
-        assert!(msg.contains("invalid configuration"));
-    }
-
-    #[test]
     fn test_repo_operation_failed_error_message() {
         let err = MdDocsError::RepoOperationFailed("clone failed".to_string());
         let msg = format!("{}", err);
         assert!(msg.contains("repository operation failed"));
-    }
-
-    #[test]
-    fn test_user_managed_template_error_message() {
-        let err = MdDocsError::UserManagedTemplate("my-template".to_string());
-        let msg = format!("{}", err);
-        assert!(msg.contains("cannot remove user-managed template"));
     }
 }
 
@@ -1105,15 +1199,20 @@ description = "Clean defaults using standard Typst fonts and neutral colors"
     }
 
     #[test]
-    fn test_config_deserialization() {
+    fn test_config_deserialization_new_format() {
         // Setup
         let toml_str = r#"
 default_template = "resume-2-col"
 default_brand = "generic"
-templates_dir = "/home/user/templates"
-brands_dir = "/home/user/brands"
 output_dir = "/home/user/output"
 author = "Test Author"
+
+[[repos]]
+name = "default"
+url = "https://github.com/hendemic/md-docs-templates.git"
+
+[[local]]
+path = "/home/user/templates"
 "#;
 
         // Execute
@@ -1122,10 +1221,10 @@ author = "Test Author"
         // Assert
         assert_eq!(config.default_template(), Some("resume-2-col"));
         assert_eq!(config.default_brand(), Some("generic"));
-        assert_eq!(config.raw_templates_dir(), Some(&PathBuf::from("/home/user/templates")));
-        assert_eq!(config.raw_brands_dir(), Some(&PathBuf::from("/home/user/brands")));
-        assert_eq!(config.output_dir(), Some(&PathBuf::from("/home/user/output")));
+        assert_eq!(config.output_dir(), Some(Path::new("/home/user/output")));
         assert_eq!(config.author(), Some("Test Author"));
+        assert_eq!(config.repos().len(), 1);
+        assert_eq!(config.local().len(), 1);
     }
 
     #[test]
@@ -1141,67 +1240,28 @@ default_template = "resume-ats"
         // Assert
         assert_eq!(config.default_template(), Some("resume-ats"));
         assert!(config.default_brand().is_none());
-        assert!(config.raw_templates_dir().is_none());
+        assert!(config.repos().is_empty());
+        assert!(config.local().is_empty());
         assert!(config.author().is_none());
     }
 }
 
 // =========================================================================
-// CliMessage formatting
+// Constants
 // =========================================================================
 
-mod cli_message_tests {
+mod constants {
     use super::*;
 
     #[test]
-    fn test_success_formatted_contains_checkmark_and_message() {
-        let msg = CliMessage::Success("done".to_string());
-        let output = msg.formatted();
-        assert!(output.contains("done"));
-        // Checkmark may have ANSI codes; verify output is longer than bare message
-        assert!(output.contains("\u{2713}") || output.len() > "done".len());
+    fn test_default_repo_url_is_valid_git_url() {
+        assert!(DEFAULT_REPO_URL.starts_with("https://"));
+        assert!(DEFAULT_REPO_URL.ends_with(".git"));
     }
 
     #[test]
-    fn test_info_formatted_contains_message() {
-        let msg = CliMessage::Info("compiling...".to_string());
-        let output = msg.formatted();
-        assert!(output.contains("compiling..."));
-    }
-
-    #[test]
-    fn test_warning_formatted_contains_prefix_and_message() {
-        let msg = CliMessage::Warning("missing font".to_string());
-        let output = msg.formatted();
-        assert!(output.contains("warning:"));
-        assert!(output.contains("missing font"));
-    }
-
-    #[test]
-    fn test_error_formatted_contains_prefix_and_message() {
-        let msg = CliMessage::Error("file not found".to_string());
-        let output = msg.formatted();
-        assert!(output.contains("error:"));
-        assert!(output.contains("file not found"));
-    }
-
-    #[test]
-    fn test_log_formatted_contains_message() {
-        let msg = CliMessage::Log("debug info".to_string());
-        let output = msg.formatted();
-        assert!(output.contains("debug info"));
-    }
-
-    #[test]
-    fn test_plain_formatted_is_passthrough() {
-        let msg = CliMessage::Plain("raw text".to_string());
-        let output = msg.formatted();
-        assert_eq!(output, "raw text");
-    }
-
-    #[test]
-    fn test_display_impl_matches_formatted() {
-        let msg = CliMessage::Success("test".to_string());
-        assert_eq!(format!("{}", msg), msg.formatted());
+    fn test_default_repo_name_is_default() {
+        assert_eq!(DEFAULT_REPO_NAME, "default");
     }
 }
+

@@ -1,21 +1,5 @@
-//! Application layer: orchestrates business logic.
-//!
-//! The `AppController` receives parsed CLI commands and coordinates between
-//! config resolution, template/brand discovery, markdown conversion,
-//! and Typst compilation. All I/O services live in `infra/`.
-//!
-//! # Module dependency graph
-//! ```text
-//! app/mod.rs  (AppController)
-//!   |-- app/compiler.rs      (compile, assemble, generate)
-//!   |-- app/converter.rs     (markdown_to_typst)
-//!   |-- infra/config.rs      (ConfigLoader)
-//!   |-- infra/templates.rs   (TemplateManager, load_modifiers)
-//!   |-- infra/fonts.rs       (is_font_available, load_brand_fonts, fallback_font)
-//!   +-- domain.rs            (all types)
-//! ```
+//! Application layer: orchestrates domain logic with infra services.
 
-pub mod compiler;
 pub mod converter;
 
 use std::path::{Path, PathBuf};
@@ -23,47 +7,80 @@ use std::path::{Path, PathBuf};
 use colored::Colorize;
 
 use crate::domain::{
-    Brand, CliMessage, Config, ContentSections, ConversionContext, Document, Metadata, MdDocsError,
+    Brand, Config, ContentSections, ConversionContext, Document, Metadata, MdDocsError,
     Template, resolve_modifiers,
 };
 
-use crate::infra::config::ConfigLoader;
-use crate::infra::logger::FileLogger;
+use crate::infra::system::ConfigLoader;
+use crate::infra::system::FileLogger;
 use crate::infra::templates::TemplateManager;
 
+// ---------------------------------------------------------------------------
+// CLI output messages
+// ---------------------------------------------------------------------------
+
+/// A CLI output message with semantic level.
+#[derive(Debug, Clone)]
+pub enum CliMessage {
+    Success(String),
+    Info(String),
+    Log(String),
+    Warning(String),
+    Error(String),
+    Plain(String),
+}
+
+impl CliMessage {
+    /// Format this message with colors and prefix for terminal display.
+    pub fn formatted(&self) -> String {
+        match self {
+            CliMessage::Success(msg) => format!("{} {}", "✓".green().bold(), msg),
+            CliMessage::Info(msg) => format!("{}", msg.cyan()),
+            CliMessage::Log(msg) => format!("{}", msg.dimmed()),
+            CliMessage::Warning(msg) => format!("{} {}", "warning:".yellow().bold(), msg),
+            CliMessage::Error(msg) => format!("{} {}", "error:".red().bold(), msg),
+            CliMessage::Plain(msg) => msg.clone(),
+        }
+    }
+
+    /// Print this message to the appropriate stream (stdout or stderr).
+    pub fn print(&self, verbose: bool) {
+        match self {
+            CliMessage::Log(_) => {
+                if verbose {
+                    println!("{}", self.formatted());
+                }
+            }
+            CliMessage::Warning(_) | CliMessage::Error(_) => {
+                eprintln!("{}", self.formatted());
+            }
+            _ => {
+                println!("{}", self.formatted());
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for CliMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.formatted())
+    }
+}
+
 /// Central application controller.
-///
-/// Owns the resolved configuration and provides methods for each CLI command.
-/// Created once per invocation in `cli::run()`.
 pub struct AppController {
-    /// The resolved layered configuration.
     config: Config,
-
-    /// Template and brand discovery manager.
     template_manager: TemplateManager,
-
-    /// Whether to show verbose/debug output.
     verbose: bool,
-
-    /// File logger for persistent log entries.
     logger: FileLogger,
 }
 
 impl AppController {
     /// Build a new AppController by loading layered configuration.
-    ///
-    /// Loads config from: defaults <- global <- project <- (CLI args applied later).
     pub fn new(verbose: bool) -> anyhow::Result<Self> {
         let config = ConfigLoader::load()?;
-        let template_manager = TemplateManager::new(&config);
+        let template_manager = TemplateManager::new(config.clone());
         let logger = FileLogger::new();
-
-        // Warn if md-docs hasn't been initialized yet
-        if !ConfigLoader::global_config_path().exists() {
-            CliMessage::Warning(
-                "md-docs is not initialized. Run 'md-docs init' to set up config and install templates.".to_string()
-            ).print(verbose);
-        }
 
         Ok(Self {
             config,
@@ -75,7 +92,15 @@ impl AppController {
 
     /// Emit a CLI message to terminal and log file.
     fn emit(&self, msg: CliMessage) {
-        self.logger.log_message(&msg);
+        let (level, text) = match &msg {
+            CliMessage::Success(s) => ("SUCCESS", s.as_str()),
+            CliMessage::Info(s) => ("INFO", s.as_str()),
+            CliMessage::Log(s) => ("DEBUG", s.as_str()),
+            CliMessage::Warning(s) => ("WARN", s.as_str()),
+            CliMessage::Error(s) => ("ERROR", s.as_str()),
+            CliMessage::Plain(s) => ("INFO", s.as_str()),
+        };
+        self.logger.log(level, text);
         msg.print(self.verbose);
     }
 
@@ -84,15 +109,6 @@ impl AppController {
     // -----------------------------------------------------------------------
 
     /// Convert a markdown file to PDF.
-    ///
-    /// Pipeline:
-    /// 1. Read and parse the markdown file (frontmatter + body)
-    /// 2. Resolve template and brand (by name or interactive selection)
-    /// 3. Load and resolve modifiers for the chosen template
-    /// 4. Convert markdown to Typst markup via `converter::markdown_to_typst`
-    /// 5. Generate content.typ with metadata and content sections
-    /// 6. Assemble temp dir with template.typ, brand.typ, content.typ
-    /// 7. Compile via `compiler::compile` and write PDF to output path
     pub fn convert(
         &self,
         input: PathBuf,
@@ -141,9 +157,22 @@ impl AppController {
             "Compiling {} with template '{}' and brand '{}'...",
             input.display(), template.id, brand.id
         )));
-        let result = compiler::compile(&document, &template, &brand, &output_path)?;
+        let result = crate::infra::compiler::compile(&document, &template, &brand, &output_path)?;
+
+        // Deduplicate and surface font warnings with actionable advice
+        let mut seen_font_warnings = std::collections::HashSet::new();
         for w in &result.warnings {
-            self.emit(CliMessage::Warning(format!("typst: {}", w)));
+            if let Some(font_name) = w.strip_prefix("unknown font family: ") {
+                if seen_font_warnings.insert(font_name.to_string()) {
+                    self.emit(CliMessage::Warning(format!(
+                        "font '{}' not found — falling back to embedded default. \
+                         Install the font or update the brand to use an available font.",
+                        font_name
+                    )));
+                }
+            } else {
+                self.emit(CliMessage::Warning(format!("typst: {}", w)));
+            }
         }
         self.emit(CliMessage::Success(format!("Output: {}", output_path.display())));
 
@@ -151,9 +180,6 @@ impl AppController {
     }
 
     /// Parse a markdown file into a Document.
-    ///
-    /// Reads the file, extracts YAML frontmatter, and stores the raw body.
-    /// The config author is injected as a fallback if frontmatter has no author.
     fn parse_input(&self, input: &Path) -> anyhow::Result<Document> {
         if !input.is_file() {
             return Err(MdDocsError::InputNotFound(input.to_path_buf()).into());
@@ -194,6 +220,7 @@ impl AppController {
             id: &t.id,
             name: &t.metadata.name,
             description: t.metadata.description.as_deref(),
+            source: String::new(),
         }).collect();
         let items = format_selector_items(&rows);
         let selection = dialoguer::Select::new()
@@ -236,6 +263,7 @@ impl AppController {
             id: &b.id,
             name: &b.metadata.name,
             description: b.metadata.description.as_deref(),
+            source: String::new(),
         }).collect();
         let items = format_selector_items(&rows);
         let selection = dialoguer::Select::new()
@@ -248,8 +276,6 @@ impl AppController {
     }
 
     /// Determine the output PDF path.
-    ///
-    /// Priority: explicit output flag -> config output_dir -> input file with .pdf extension.
     fn resolve_output(&self, input: &Path, output: Option<PathBuf>) -> PathBuf {
         // 1. Explicit output path
         if let Some(output) = output {
@@ -287,6 +313,7 @@ impl AppController {
                 id: &t.id,
                 name: &t.metadata.name,
                 description: t.metadata.description.as_deref(),
+                source: t.source.to_string(),
             })
             .collect();
 
@@ -297,30 +324,77 @@ impl AppController {
         Ok(())
     }
 
-    /// Install templates from a git repository URL.
-    ///
-    /// Defaults to the official md-docs-templates repo if no URL is provided.
-    pub fn install_templates(&self, repo_url: Option<String>) -> anyhow::Result<()> {
-        const DEFAULT_REPO: &str = "https://github.com/hendemic/md-docs-templates.git";
-        let url = repo_url.as_deref().unwrap_or(DEFAULT_REPO);
-        self.emit(CliMessage::Info(format!("Installing templates from {}...", url)));
-        self.template_manager.install_repo(url)?;
-        self.emit(CliMessage::Success("Templates installed successfully.".to_string()));
+    /// Install template repos from config.
+    pub fn install_templates(&self, name: Option<String>) -> anyhow::Result<()> {
+        if self.config.repos().is_empty() {
+            anyhow::bail!("No repos configured. Add [[repos]] to your config.");
+        }
+        match &name {
+            Some(n) => self.emit(CliMessage::Info(format!("Installing repo '{}'...", n))),
+            None => self.emit(CliMessage::Info("Installing all configured repos...".to_string())),
+        }
+        self.template_manager.install_repo(name.as_deref())?;
+        self.emit(CliMessage::Success("Repos installed successfully.".to_string()));
         Ok(())
     }
 
-    /// Update installed templates (git pull).
+    /// Update installed template repos (git pull).
     pub fn update_templates(&self, name: Option<String>) -> anyhow::Result<()> {
-        self.emit(CliMessage::Info("Updating templates...".to_string()));
+        match &name {
+            Some(n) => self.emit(CliMessage::Info(format!("Updating repo '{}'...", n))),
+            None => self.emit(CliMessage::Info("Updating all configured repos...".to_string())),
+        }
         self.template_manager.update_repo(name.as_deref())?;
-        self.emit(CliMessage::Success("Templates updated successfully.".to_string()));
+        self.emit(CliMessage::Success("Repos updated successfully.".to_string()));
         Ok(())
     }
 
-    /// Remove an installed template by name.
-    pub fn remove_template(&self, name: &str) -> anyhow::Result<()> {
-        self.template_manager.remove_template(name)?;
-        self.emit(CliMessage::Success(format!("Template '{}' removed.", name)));
+    /// Add a template source (git repo or local directory) to global config.
+    pub fn add_source(&self, source: &str) -> anyhow::Result<()> {
+        let config_path = ConfigLoader::global_config_path();
+        if !config_path.exists() {
+            anyhow::bail!(
+                "No config file found. Run 'md-docs init' first to create {}",
+                config_path.display()
+            );
+        }
+
+        if is_git_uri(source) {
+            let name = repo_name_from_uri(source)?;
+
+            // Check for duplicate repo name
+            if self.config.repos().iter().any(|r| r.name == name) {
+                anyhow::bail!("Repo '{}' already exists in config.", name);
+            }
+
+            let entry = format!("\n[[repos]]\nname = \"{}\"\nurl = \"{}\"\n", name, source);
+            append_to_config(&config_path, &entry)?;
+            self.emit(CliMessage::Success(format!(
+                "Added repo '{}' ({}). Run 'md-docs templates install {}' to clone it.",
+                name, source, name
+            )));
+        } else {
+            let path = PathBuf::from(source);
+            if !path.is_dir() {
+                anyhow::bail!("Directory '{}' does not exist.", source);
+            }
+
+            let canonical = path.canonicalize()?;
+
+            // Check for duplicate local path
+            if self.config.local().iter().any(|l| {
+                l.path.canonicalize().ok().as_ref() == Some(&canonical)
+            }) {
+                anyhow::bail!("Local source '{}' already exists in config.", canonical.display());
+            }
+
+            let entry = format!("\n[[local]]\npath = \"{}\"\n", canonical.display());
+            append_to_config(&config_path, &entry)?;
+            self.emit(CliMessage::Success(format!(
+                "Added local source '{}'.", canonical.display()
+            )));
+        }
+
         Ok(())
     }
 
@@ -342,6 +416,7 @@ impl AppController {
                 id: &b.id,
                 name: &b.metadata.name,
                 description: b.metadata.description.as_deref(),
+                source: b.source.to_string(),
             })
             .collect();
 
@@ -359,16 +434,7 @@ impl AppController {
     /// Display the current resolved configuration.
     pub fn show_config(&self) -> anyhow::Result<()> {
         self.emit(CliMessage::Info("Current configuration:".to_string()));
-        self.emit(CliMessage::Plain(format!(
-            "  {}: {}",
-            "Templates dir".bold(),
-            self.config.effective_templates_dir().display().to_string().dimmed()
-        )));
-        self.emit(CliMessage::Plain(format!(
-            "  {}: {}",
-            "Brands dir".bold(),
-            self.config.effective_brands_dir().display().to_string().dimmed()
-        )));
+
         if let Some(t) = self.config.default_template() {
             self.emit(CliMessage::Plain(format!(
                 "  {}: {}", "Default template".bold(), t.dimmed()
@@ -389,6 +455,29 @@ impl AppController {
                 "  {}: {}", "Author".bold(), a.dimmed()
             )));
         }
+
+        if !self.config.repos().is_empty() {
+            self.emit(CliMessage::Plain(format!("\n  {}:", "Repos".bold())));
+            let repos_base = crate::infra::system::xdg_data_home().join("md-docs/repos");
+            for repo in self.config.repos() {
+                let installed = repos_base.join(&repo.name).join(".git").is_dir();
+                let status = if installed { "installed" } else { "not installed" };
+                self.emit(CliMessage::Plain(format!(
+                    "    {} -- {} ({})",
+                    repo.name.bold(), repo.url.dimmed(), status.dimmed()
+                )));
+            }
+        }
+
+        if !self.config.local().is_empty() {
+            self.emit(CliMessage::Plain(format!("\n  {}:", "Local sources".bold())));
+            for local in self.config.local() {
+                self.emit(CliMessage::Plain(format!(
+                    "    {}", local.path.display().to_string().dimmed()
+                )));
+            }
+        }
+
         Ok(())
     }
 
@@ -397,9 +486,6 @@ impl AppController {
     // -----------------------------------------------------------------------
 
     /// Create a new document from a template's starter file.
-    ///
-    /// Copies the template's starter markdown file to the specified output
-    /// directory (or current directory), optionally renaming it.
     pub fn new_from_template(
         &self,
         template_name: &str,
@@ -445,7 +531,67 @@ impl AppController {
         Ok(())
     }
 
-    /// Create the global config file at `~/.config/md-docs/config.toml`.
+    // -----------------------------------------------------------------------
+    // Update command
+    // -----------------------------------------------------------------------
+
+    /// Check for updates and optionally perform a self-update.
+    pub fn self_update(&self, check_only: bool) -> anyhow::Result<()> {
+        use crate::infra::updater;
+
+        let check = updater::check_for_update()?;
+
+        match check {
+            updater::UpdateCheck::AurInstall => {
+                self.emit(CliMessage::Info(
+                    "md-docs was installed via your system package manager.".to_string(),
+                ));
+                self.emit(CliMessage::Info(
+                    "Update using your AUR helper (e.g., yay -Syu md-docs).".to_string(),
+                ));
+            }
+            updater::UpdateCheck::UpToDate(version) => {
+                self.emit(CliMessage::Success(format!(
+                    "md-docs v{} is already up to date.",
+                    version
+                )));
+            }
+            updater::UpdateCheck::UpdateAvailable {
+                current,
+                latest,
+                release,
+            } => {
+                self.emit(CliMessage::Info(format!(
+                    "Update available: v{} -> v{}",
+                    current, latest
+                )));
+                if check_only {
+                    return Ok(());
+                }
+                let confirm = dialoguer::Confirm::new()
+                    .with_prompt(format!("Update md-docs from v{} to v{}?", current, latest))
+                    .default(true)
+                    .interact()?;
+                if !confirm {
+                    return Ok(());
+                }
+                self.emit(CliMessage::Info("Downloading update...".to_string()));
+                updater::perform_update(&release)?;
+                self.emit(CliMessage::Success(format!(
+                    "Successfully updated md-docs to v{}.",
+                    latest
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Init / New commands
+    // -----------------------------------------------------------------------
+
+    /// Create global config and install default templates.
     pub fn init_project(&self) -> anyhow::Result<()> {
         let config_path = ConfigLoader::global_config_path();
 
@@ -457,18 +603,38 @@ impl AppController {
             std::fs::create_dir_all(parent)?;
         }
 
-        let default_content = r#"# md-docs global configuration
+        let default_content = format!(
+            r#"# md-docs global configuration
 
 # default_template = "resume-2-col"
 # default_brand = "generic"
 # author = "Your Name"
-"#;
 
-        std::fs::write(&config_path, default_content)?;
+[[repos]]
+name = "{}"
+url = "{}"
+"#,
+            crate::domain::DEFAULT_REPO_NAME, crate::domain::DEFAULT_REPO_URL
+        );
+
+        std::fs::write(&config_path, &default_content)?;
         self.emit(CliMessage::Success(format!("Created {}", config_path.display())));
 
-        // Install default templates and brands
-        self.install_templates(None)?;
+        // Reload config to pick up new [[repos]], then install
+        let fresh_config = ConfigLoader::load()?;
+        let fresh_manager = TemplateManager::new(fresh_config);
+        match fresh_manager.install_repo(None) {
+            Ok(()) => {
+                self.emit(CliMessage::Success("Default templates installed.".to_string()));
+            }
+            Err(e) => {
+                self.emit(CliMessage::Warning(format!(
+                    "Config created but template installation failed: {}. \
+                     Run 'mdocs templates install' to retry.",
+                    e
+                )));
+            }
+        }
 
         Ok(())
     }
@@ -478,27 +644,22 @@ impl AppController {
 // Table formatting helpers
 // ---------------------------------------------------------------------------
 
-/// A row of data to display in a formatted table.
 struct TableRow<'a> {
     id: &'a str,
     name: &'a str,
     description: Option<&'a str>,
+    source: String,
 }
 
-/// Minimum padding (in spaces) between the widest value and the next column.
 const TABLE_COL_PAD: usize = 3;
 
-/// Format a list of table rows into aligned, colored output lines.
-///
-/// Computes column widths dynamically from the data, emits a bold header row
-/// followed by data rows with bold id, normal name, and dimmed description.
-/// Each line is prefixed with two spaces of indentation.
+/// Format table rows into aligned, colored output lines.
 fn format_table(rows: &[TableRow<'_>]) -> Vec<String> {
     let header_id = "ID";
     let header_name = "Name";
     let header_desc = "Description";
+    let header_source = "Source";
 
-    // Compute max width for each column (considering both header and data).
     let id_width = rows.iter().map(|r| r.id.len()).max().unwrap_or(0).max(header_id.len());
     let name_width = rows
         .iter()
@@ -506,13 +667,20 @@ fn format_table(rows: &[TableRow<'_>]) -> Vec<String> {
         .max()
         .unwrap_or(0)
         .max(header_name.len());
+    let desc_width = rows
+        .iter()
+        .map(|r| r.description.unwrap_or("").len())
+        .max()
+        .unwrap_or(0)
+        .max(header_desc.len());
 
     let id_col = id_width + TABLE_COL_PAD;
     let name_col = name_width + TABLE_COL_PAD;
+    let desc_col = desc_width + TABLE_COL_PAD;
 
     let mut lines = Vec::with_capacity(rows.len() + 1);
 
-    // Header row (bold). Pad manually to avoid ANSI codes disrupting alignment.
+    // Pad manually so ANSI codes don't disrupt alignment
     let hdr_id = format!(
         "{}{}",
         header_id.bold(),
@@ -523,24 +691,25 @@ fn format_table(rows: &[TableRow<'_>]) -> Vec<String> {
         header_name.bold(),
         " ".repeat(name_col.saturating_sub(header_name.len()))
     );
-    lines.push(format!("  {}{}{}", hdr_name, hdr_id, header_desc.bold()));
+    let hdr_desc = format!(
+        "{}{}",
+        header_desc.bold(),
+        " ".repeat(desc_col.saturating_sub(header_desc.len()))
+    );
+    lines.push(format!("  {}{}{}{}", hdr_name, hdr_id, hdr_desc, header_source.bold()));
 
-    // Data rows.
     for row in rows {
         let desc = row.description.unwrap_or("");
-        // Pad id and name manually so ANSI escape codes from bold/dimmed
-        // don't interfere with the width formatting.
         let name_padded = format!("{}{}", row.name.cyan(), " ".repeat(name_col.saturating_sub(row.name.len())));
         let id_padded = format!("{}{}", row.id.bold(), " ".repeat(id_col.saturating_sub(row.id.len())));
-        lines.push(format!("  {}{}{}", name_padded, id_padded, desc.dimmed()));
+        let desc_padded = format!("{}{}", desc.dimmed(), " ".repeat(desc_col.saturating_sub(desc.len())));
+        lines.push(format!("  {}{}{}{}", name_padded, id_padded, desc_padded, (&row.source).dimmed()));
     }
 
     lines
 }
 
-/// Format table rows as padded, colored lines for interactive selectors.
-///
-/// Same column alignment as `format_table` but without header row or indentation.
+/// Format table rows for interactive selectors (no header row).
 fn format_selector_items(rows: &[TableRow<'_>]) -> Vec<String> {
     let name_width = rows.iter().map(|r| r.name.len()).max().unwrap_or(0);
     let id_width = rows.iter().map(|r| r.id.len()).max().unwrap_or(0);
@@ -556,6 +725,37 @@ fn format_selector_items(rows: &[TableRow<'_>]) -> Vec<String> {
             format!("{}{}{}", name_padded, id_padded, desc.dimmed())
         })
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// Source detection helpers
+// ---------------------------------------------------------------------------
+
+fn is_git_uri(source: &str) -> bool {
+    source.contains("://") || source.starts_with("git@")
+}
+
+/// Derive a repo name from a git URI (last path component, minus `.git`).
+fn repo_name_from_uri(uri: &str) -> anyhow::Result<String> {
+    let trimmed = uri.trim_end_matches('/').trim_end_matches(".git");
+    let name = trimmed
+        .rsplit('/')
+        .next()
+        .or_else(|| trimmed.rsplit(':').next())
+        .ok_or_else(|| anyhow::anyhow!("Could not derive repo name from URI: {}", uri))?;
+
+    if name.is_empty() {
+        anyhow::bail!("Could not derive repo name from URI: {}", uri);
+    }
+
+    Ok(name.to_string())
+}
+
+fn append_to_config(path: &Path, entry: &str) -> anyhow::Result<()> {
+    use std::io::Write;
+    let mut file = std::fs::OpenOptions::new().append(true).open(path)?;
+    file.write_all(entry.as_bytes())?;
+    Ok(())
 }
 
 #[cfg(test)]
