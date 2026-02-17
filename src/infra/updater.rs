@@ -261,6 +261,8 @@ fn download_file(url: &str, dest: &Path) -> anyhow::Result<()> {
         .call()
         .with_context(|| format!("Failed to download '{}'", url))?
         .into_body()
+        .with_config()
+        .limit(50 * 1024 * 1024)
         .read_to_vec()
         .context("Failed to read download response body")?;
 
