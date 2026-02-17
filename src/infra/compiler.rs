@@ -8,6 +8,16 @@ use typst_as_lib::typst_kit_options::TypstKitFontOptions;
 
 use crate::domain::{Brand, ContentSections, Document, Metadata, Template};
 
+// Embedded fallback fonts (SIL OFL 1.1)
+static EB_GARAMOND_REGULAR: &[u8] = include_bytes!("../../assets/EBGaramond-Regular.ttf");
+static EB_GARAMOND_BOLD: &[u8] = include_bytes!("../../assets/EBGaramond-Bold.ttf");
+static EB_GARAMOND_ITALIC: &[u8] = include_bytes!("../../assets/EBGaramond-Italic.ttf");
+static INTER_REGULAR: &[u8] = include_bytes!("../../assets/Inter_28pt-Regular.ttf");
+static INTER_BOLD: &[u8] = include_bytes!("../../assets/Inter_28pt-Bold.ttf");
+static INTER_ITALIC: &[u8] = include_bytes!("../../assets/Inter_28pt-Italic.ttf");
+static INTER_LIGHT: &[u8] = include_bytes!("../../assets/Inter_28pt-Light.ttf");
+static IBM_PLEX_MONO_LIGHT: &[u8] = include_bytes!("../../assets/IBMPlexMono-Light.ttf");
+
 /// Result of a successful Typst compilation.
 #[derive(Debug)]
 pub struct CompileResult {
@@ -136,14 +146,23 @@ fn copy_dir_files(src: &Path, dst: &Path) -> anyhow::Result<()> {
 fn compile_typst(temp_dir: &Path) -> anyhow::Result<(Vec<u8>, Vec<String>)> {
     let template_content = std::fs::read_to_string(temp_dir.join("template.typ"))?;
 
-    // search_fonts_with is required for embedded fonts to render
+    // Custom fonts registered first via .fonts(), then system fonts merged via search_fonts_with
     let engine = TypstEngine::builder()
         .main_file(template_content)
         .with_file_system_resolver(temp_dir)
+        .fonts([
+            EB_GARAMOND_REGULAR,
+            EB_GARAMOND_BOLD,
+            EB_GARAMOND_ITALIC,
+            INTER_REGULAR,
+            INTER_BOLD,
+            INTER_ITALIC,
+            INTER_LIGHT,
+            IBM_PLEX_MONO_LIGHT,
+        ])
         .search_fonts_with(
             TypstKitFontOptions::default()
-                .include_system_fonts(true)
-                .include_embedded_fonts(true),
+                .include_system_fonts(true),
         )
         .build();
 

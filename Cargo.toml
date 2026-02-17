@@ -8,8 +8,8 @@ license = "MIT"
 [dependencies]
 # Typst compilation
 typst = "0.14"
-# embed-fonts provides "New Computer Modern" fallback — without it, text won't render if brand fonts are missing
-typst-as-lib = { version = "0.15", features = ["typst-kit-fonts", "typst-kit-embed-fonts"] }
+# typst-kit-fonts provides search_fonts_with() API for system font discovery
+typst-as-lib = { version = "0.15", features = ["typst-kit-fonts"] }
 typst-pdf = "0.14"
 
 # Markdown parsing
