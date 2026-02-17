@@ -19,7 +19,7 @@ use md_docs::app::AppController;
 
 /// md-docs: Generate professional documents from Markdown using Typst templates.
 #[derive(Debug, Parser)]
-#[command(name = "md-docs", version, about, long_about = None)]
+#[command(name = "mdocs", version, about, long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,

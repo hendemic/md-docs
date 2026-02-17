@@ -82,13 +82,6 @@ impl AppController {
         let template_manager = TemplateManager::new(config.clone());
         let logger = FileLogger::new();
 
-        // Warn if md-docs hasn't been initialized yet
-        if !ConfigLoader::global_config_path().exists() {
-            CliMessage::Warning(
-                "md-docs is not initialized. Run 'md-docs init' to set up config and install templates.".to_string()
-            ).print(verbose);
-        }
-
         Ok(Self {
             config,
             template_manager,
@@ -630,8 +623,18 @@ url = "{}"
         // Reload config to pick up new [[repos]], then install
         let fresh_config = ConfigLoader::load()?;
         let fresh_manager = TemplateManager::new(fresh_config);
-        fresh_manager.install_repo(None)?;
-        self.emit(CliMessage::Success("Default templates installed.".to_string()));
+        match fresh_manager.install_repo(None) {
+            Ok(()) => {
+                self.emit(CliMessage::Success("Default templates installed.".to_string()));
+            }
+            Err(e) => {
+                self.emit(CliMessage::Warning(format!(
+                    "Config created but template installation failed: {}. \
+                     Run 'mdocs templates install' to retry.",
+                    e
+                )));
+            }
+        }
 
         Ok(())
     }

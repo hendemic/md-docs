@@ -5,7 +5,7 @@ set -eu
 # Usage: curl -fsSL https://raw.githubusercontent.com/hendemic/md-docs/main/dist/install.sh | sh
 
 REPO="hendemic/md-docs"
-BINARY_NAME="md-docs"
+BINARY_NAME="mdocs"
 INSTALL_DIR="${HOME}/.local/bin"
 
 # --- Helpers ---

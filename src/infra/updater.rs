@@ -78,10 +78,20 @@ pub fn is_aur_install() -> bool {
 pub fn fetch_latest_release() -> anyhow::Result<ReleaseInfo> {
     let url = "https://api.github.com/repos/hendemic/md-docs/releases/latest";
 
-    let body = ureq::get(url)
+    let response = match ureq::get(url)
         .header("User-Agent", "md-docs-updater")
         .call()
-        .context("Failed to fetch latest release from GitHub")?
+    {
+        Ok(resp) => resp,
+        Err(ureq::Error::StatusCode(404)) => {
+            bail!("No releases found. Check https://github.com/hendemic/md-docs/releases");
+        }
+        Err(e) => {
+            return Err(e).context("Failed to fetch latest release from GitHub");
+        }
+    };
+
+    let body = response
         .into_body()
         .read_to_string()
         .context("Failed to read GitHub API response body")?;
@@ -174,7 +184,7 @@ pub fn perform_update(release: &ReleaseInfo) -> anyhow::Result<()> {
         bail!("tar extraction failed with exit code: {:?}", status.code());
     }
 
-    // Find the md-docs binary in the extracted contents
+    // Find the mdocs binary in the extracted contents
     let new_binary = find_binary(tmp_dir.path())?;
 
     // Replace the current binary
@@ -260,13 +270,13 @@ fn download_file(url: &str, dest: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Find the `md-docs` binary in an extracted archive directory.
+/// Find the `mdocs` binary in an extracted archive directory.
 ///
 /// Searches the directory (non-recursively first, then one level deep) for
-/// a file named `md-docs`.
+/// a file named `mdocs`.
 fn find_binary(dir: &std::path::Path) -> anyhow::Result<PathBuf> {
     // Check directly in the directory
-    let direct = dir.join("md-docs");
+    let direct = dir.join("mdocs");
     if direct.is_file() {
         return Ok(direct);
     }
@@ -275,7 +285,7 @@ fn find_binary(dir: &std::path::Path) -> anyhow::Result<PathBuf> {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             if entry.path().is_dir() {
-                let nested = entry.path().join("md-docs");
+                let nested = entry.path().join("mdocs");
                 if nested.is_file() {
                     return Ok(nested);
                 }
@@ -284,7 +294,7 @@ fn find_binary(dir: &std::path::Path) -> anyhow::Result<PathBuf> {
     }
 
     bail!(
-        "Could not find 'md-docs' binary in extracted archive at '{}'",
+        "Could not find 'mdocs' binary in extracted archive at '{}'",
         dir.display()
     )
 }

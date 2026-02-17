@@ -66,7 +66,7 @@ for target in "${TARGETS[@]}"; do
     # Stage the binary
     STAGING_DIR="$RELEASE_DIR/md-docs-v${VERSION}-macos-${arch}"
     mkdir -p "$STAGING_DIR"
-    cp "target/${target}/release/md-docs" "$STAGING_DIR/"
+    cp "target/${target}/release/mdocs" "$STAGING_DIR/"
 
     # Create archive
     ARCHIVE_NAME="md-docs-v${VERSION}-macos-${arch}.tar.gz"
@@ -85,9 +85,9 @@ echo "=== Creating universal binary ==="
 UNIVERSAL_STAGING="$RELEASE_DIR/md-docs-v${VERSION}-macos-universal"
 mkdir -p "$UNIVERSAL_STAGING"
 
-lipo -create -output "$UNIVERSAL_STAGING/md-docs" \
-    "target/x86_64-apple-darwin/release/md-docs" \
-    "target/aarch64-apple-darwin/release/md-docs"
+lipo -create -output "$UNIVERSAL_STAGING/mdocs" \
+    "target/x86_64-apple-darwin/release/mdocs" \
+    "target/aarch64-apple-darwin/release/mdocs"
 
 UNIVERSAL_ARCHIVE="md-docs-v${VERSION}-macos-universal.tar.gz"
 tar -czf "$RELEASE_DIR/$UNIVERSAL_ARCHIVE" -C "$RELEASE_DIR" "md-docs-v${VERSION}-macos-universal"
@@ -100,7 +100,7 @@ echo "=== Creating .pkg installer ==="
 
 PKG_STAGING="$RELEASE_DIR/pkg-root"
 mkdir -p "$PKG_STAGING"
-cp "$UNIVERSAL_STAGING/md-docs" "$PKG_STAGING/"
+cp "$UNIVERSAL_STAGING/mdocs" "$PKG_STAGING/"
 
 PKG_NAME="md-docs-v${VERSION}-macos.pkg"
 pkgbuild \

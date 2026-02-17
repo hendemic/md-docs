@@ -63,7 +63,7 @@ for target in "${TARGETS[@]}"; do
     # Stage the binary
     STAGING_DIR="$RELEASE_DIR/md-docs-v${VERSION}-linux-${arch}"
     mkdir -p "$STAGING_DIR"
-    cp "target/${target}/release/md-docs" "$STAGING_DIR/"
+    cp "target/${target}/release/mdocs" "$STAGING_DIR/"
 
     # Create archive
     ARCHIVE_NAME="md-docs-v${VERSION}-linux-${arch}.tar.gz"

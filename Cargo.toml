@@ -5,6 +5,10 @@ edition = "2021"
 description = "Convert Markdown files into professional PDFs using Typst templates"
 license = "MIT"
 
+[[bin]]
+name = "mdocs"
+path = "src/main.rs"
+
 [dependencies]
 # Typst compilation
 typst = "0.14"
