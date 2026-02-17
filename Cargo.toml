@@ -36,7 +36,6 @@ ureq = { version = "3", features = ["json"] }
 semver = "1"
 
 # Filesystem
-dirs = "6"
 tempfile = "3"
 
 [profile.release]

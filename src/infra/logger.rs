@@ -29,12 +29,7 @@ impl FileLogger {
     /// Eagerly creates the parent directory and rotates the log file if it
     /// exceeds `MAX_LOG_SIZE`. Rotation only happens at startup.
     pub fn new() -> Self {
-        let data_dir = dirs::data_dir()
-            .unwrap_or_else(|| {
-                PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                    .join(".local/share")
-            })
-            .join("md-docs");
+        let data_dir = super::config::xdg_data_home().join("md-docs");
 
         // Best-effort: create the log directory at construction time
         let _ = create_dir_all(&data_dir);

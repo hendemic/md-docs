@@ -441,12 +441,7 @@ impl AppController {
 
         if !self.config.repos().is_empty() {
             self.emit(CliMessage::Plain(format!("\n  {}:", "Repos".bold())));
-            let repos_base = dirs::data_dir()
-                .unwrap_or_else(|| {
-                    PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                        .join(".local/share")
-                })
-                .join("md-docs/repos");
+            let repos_base = crate::infra::config::xdg_data_home().join("md-docs/repos");
             for repo in self.config.repos() {
                 let installed = repos_base.join(&repo.name).join(".git").is_dir();
                 let status = if installed { "installed" } else { "not installed" };

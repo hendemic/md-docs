@@ -97,12 +97,7 @@ impl TemplateManager {
     /// Return the base directory for cloned repositories.
     /// `~/.local/share/md-docs/repos/`
     fn repos_base_dir() -> PathBuf {
-        dirs::data_dir()
-            .unwrap_or_else(|| {
-                PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                    .join(".local/share")
-            })
-            .join("md-docs/repos")
+        super::config::xdg_data_home().join("md-docs/repos")
     }
 
     /// Return the clone path for a named repo.

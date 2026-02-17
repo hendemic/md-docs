@@ -13,6 +13,33 @@ use std::path::{Path, PathBuf};
 
 use crate::domain::Config;
 
+/// Return the XDG config home directory (`$XDG_CONFIG_HOME` or `~/.config`).
+///
+/// Uses `~/.config` on all platforms, including macOS, to match CLI developer
+/// tool conventions rather than the macOS `~/Library/Application Support/` default.
+pub fn xdg_config_home() -> PathBuf {
+    std::env::var("XDG_CONFIG_HOME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config")
+        })
+}
+
+/// Return the XDG data home directory (`$XDG_DATA_HOME` or `~/.local/share`).
+///
+/// Uses `~/.local/share` on all platforms, including macOS.
+pub fn xdg_data_home() -> PathBuf {
+    std::env::var("XDG_DATA_HOME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".local/share")
+        })
+}
+
 /// Handles discovery and merging of configuration from multiple sources.
 pub struct ConfigLoader;
 
@@ -42,12 +69,7 @@ impl ConfigLoader {
     /// Uses `$XDG_CONFIG_HOME/md-docs/config.toml`, falling back to
     /// `$HOME/.config/md-docs/config.toml`.
     pub fn global_config_path() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| {
-                PathBuf::from(std::env::var("HOME").unwrap_or_default())
-                    .join(".config")
-            })
-            .join("md-docs/config.toml")
+        xdg_config_home().join("md-docs/config.toml")
     }
 
     /// Return the path to the project-level config file.

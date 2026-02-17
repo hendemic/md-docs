@@ -1557,7 +1557,6 @@ dependencies = [
  "clap",
  "colored",
  "dialoguer",
- "dirs",
  "pulldown-cmark",
  "semver",
  "serde",
