@@ -588,6 +588,98 @@ impl AppController {
     }
 
     // -----------------------------------------------------------------------
+    // Uninstall command
+    // -----------------------------------------------------------------------
+
+    /// Remove md-docs, its configuration, and data from this system.
+    pub fn self_uninstall(&self) -> anyhow::Result<()> {
+        use crate::infra::updater;
+
+        // 1. Check for AUR install
+        if updater::is_aur_install() {
+            self.emit(CliMessage::Info(
+                "md-docs was installed via your system package manager.".to_string(),
+            ));
+            self.emit(CliMessage::Info(
+                "Uninstall using: pacman -Rns md-docs".to_string(),
+            ));
+            return Ok(());
+        }
+
+        // 2. Gather items to remove
+        let config_dir = crate::infra::system::xdg_config_home().join("md-docs");
+        let data_dir = crate::infra::system::xdg_data_home().join("md-docs");
+        let binary = std::env::current_exe()?.canonicalize()?;
+
+        let mut items: Vec<PathBuf> = Vec::new();
+        if config_dir.exists() {
+            items.push(config_dir.clone());
+        }
+        if data_dir.exists() {
+            items.push(data_dir.clone());
+        }
+        items.push(binary.clone());
+
+        // 3. Print what will be removed
+        self.emit(CliMessage::Plain("The following will be removed:".to_string()));
+        for item in &items {
+            self.emit(CliMessage::Plain(format!("  - {}", item.display())));
+        }
+
+        // 4. Prompt for confirmation
+        {
+            use std::io::Write;
+            print!("\nType 'confirm' to proceed: ");
+            std::io::stdout().flush()?;
+        }
+
+        let input = {
+            use std::io::BufRead;
+            let stdin = std::io::stdin();
+            let mut line = String::new();
+            stdin.lock().read_line(&mut line)?;
+            line.trim().to_string()
+        };
+
+        if input != "confirm" {
+            self.emit(CliMessage::Info("Uninstall cancelled.".to_string()));
+            return Ok(());
+        }
+
+        // 5. Delete config dir
+        if config_dir.exists() {
+            std::fs::remove_dir_all(&config_dir)?;
+            self.emit(CliMessage::Success(format!("Removed {}", config_dir.display())));
+        }
+
+        // 6. Delete data dir
+        if data_dir.exists() {
+            std::fs::remove_dir_all(&data_dir)?;
+            self.emit(CliMessage::Success(format!("Removed {}", data_dir.display())));
+        }
+
+        // 7. Delete the binary last
+        match std::fs::remove_file(&binary) {
+            Ok(()) => {
+                self.emit(CliMessage::Success(format!("Removed {}", binary.display())));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                self.emit(CliMessage::Warning(format!(
+                    "Could not remove {} (permission denied). Remove it manually with: sudo rm {}",
+                    binary.display(),
+                    binary.display()
+                )));
+            }
+            Err(e) => return Err(e.into()),
+        }
+
+        // 8. Print success
+        self.emit(CliMessage::Success("md-docs has been uninstalled.".to_string()));
+
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
     // Init / New commands
     // -----------------------------------------------------------------------
 

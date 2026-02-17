@@ -88,6 +88,9 @@ pub enum Commands {
         #[arg(short, long)]
         name: Option<String>,
     },
+
+    /// Remove md-docs, its configuration, and data from this system.
+    Uninstall,
 }
 
 /// Subcommands for template management.
@@ -166,5 +169,7 @@ pub fn run() -> anyhow::Result<()> {
         Commands::New { template, output_dir, name } => {
             controller.new_from_template(&template, output_dir, name.as_deref())
         }
+
+        Commands::Uninstall => controller.self_uninstall(),
     }
 }
