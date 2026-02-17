@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build Linux release binaries for md-docs using cross-compilation.
+# Build Linux release binaries for md-docs using cargo-zigbuild.
 # Produces tar.gz archives in dist/release/ for each target architecture.
 
 # Navigate to project root (parent of this script's directory)
@@ -18,12 +18,17 @@ fi
 echo "Building md-docs v${VERSION}"
 
 # Check required tools
-for tool in cross tar; do
+for tool in cargo-zigbuild tar; do
     if ! command -v "$tool" &>/dev/null; then
         echo "ERROR: Required tool '$tool' is not installed."
-        echo "  Install cross: cargo install cross --git https://github.com/cross-rs/cross"
+        echo "  Install cargo-zigbuild: cargo install cargo-zigbuild"
         exit 1
     fi
+done
+
+# Ensure rustup targets are installed
+for target in "${TARGETS[@]}"; do
+    rustup target add "$target" 2>/dev/null
 done
 
 # Define targets
@@ -52,8 +57,8 @@ for target in "${TARGETS[@]}"; do
             ;;
     esac
 
-    # Cross-compile
-    cross build --release --target "$target"
+    # Build with zigbuild (uses Zig as cross-linker, no Docker needed)
+    cargo zigbuild --release --target "$target"
 
     # Stage the binary
     STAGING_DIR="$RELEASE_DIR/md-docs-v${VERSION}-linux-${arch}"
