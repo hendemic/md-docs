@@ -522,6 +522,69 @@ impl AppController {
         Ok(())
     }
 
+    // -----------------------------------------------------------------------
+    // Update command
+    // -----------------------------------------------------------------------
+
+    /// Check for updates and optionally perform a self-update.
+    ///
+    /// When `check_only` is true, reports whether an update is available
+    /// but does not download or install it.
+    pub fn self_update(&self, check_only: bool) -> anyhow::Result<()> {
+        use crate::infra::updater;
+
+        let check = updater::check_for_update()?;
+
+        match check {
+            updater::UpdateCheck::AurInstall => {
+                self.emit(CliMessage::Info(
+                    "md-docs was installed via your system package manager.".to_string(),
+                ));
+                self.emit(CliMessage::Info(
+                    "Update using your AUR helper (e.g., yay -Syu md-docs).".to_string(),
+                ));
+            }
+            updater::UpdateCheck::UpToDate(version) => {
+                self.emit(CliMessage::Success(format!(
+                    "md-docs v{} is already up to date.",
+                    version
+                )));
+            }
+            updater::UpdateCheck::UpdateAvailable {
+                current,
+                latest,
+                release,
+            } => {
+                self.emit(CliMessage::Info(format!(
+                    "Update available: v{} -> v{}",
+                    current, latest
+                )));
+                if check_only {
+                    return Ok(());
+                }
+                let confirm = dialoguer::Confirm::new()
+                    .with_prompt(format!("Update md-docs from v{} to v{}?", current, latest))
+                    .default(true)
+                    .interact()?;
+                if !confirm {
+                    return Ok(());
+                }
+                self.emit(CliMessage::Info("Downloading update...".to_string()));
+                updater::perform_update(&release)?;
+                self.emit(CliMessage::Success(format!(
+                    "Successfully updated md-docs to v{}.",
+                    latest
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    // -----------------------------------------------------------------------
+    // Init / New commands
+    // -----------------------------------------------------------------------
+
     /// Create the global config file at `~/.config/md-docs/config.toml`.
     ///
     /// Writes a default config with the official `[[repos]]` entry, then

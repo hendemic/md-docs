@@ -8,6 +8,7 @@ pub mod config;
 pub mod fonts;
 pub mod logger;
 pub mod templates;
+pub mod updater;
 
 #[cfg(test)]
 mod tests;

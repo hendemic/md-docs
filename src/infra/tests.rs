@@ -1,6 +1,7 @@
 use super::config::ConfigLoader;
 use super::fonts;
 use super::logger::FileLogger;
+use super::updater;
 use crate::domain::{CliMessage, Config};
 
 // =========================================================================
@@ -521,5 +522,203 @@ mod file_logger_tests {
         assert!(content.contains("[SUCCESS]"));
         assert!(content.contains("[WARN]"));
         assert!(content.contains("[ERROR]"));
+    }
+}
+
+// =========================================================================
+// Updater — unit tests
+// =========================================================================
+
+mod updater_unit {
+    use super::*;
+    use semver::Version;
+
+    #[test]
+    fn test_current_version_is_valid_semver() {
+        // Execute
+        let version = updater::current_version();
+
+        // Assert -- should be a valid semver::Version matching Cargo.toml
+        let expected = Version::parse(env!("CARGO_PKG_VERSION")).unwrap();
+        assert_eq!(
+            version, expected,
+            "current_version() should match CARGO_PKG_VERSION"
+        );
+        // Verify it has the basic semver components
+        assert!(
+            version.major > 0 || version.minor > 0 || version.patch > 0,
+            "version should have at least one non-zero component: {}",
+            version
+        );
+    }
+
+    #[test]
+    fn test_is_aur_install_returns_bool() {
+        // Execute -- should not panic regardless of platform
+        let result = updater::is_aur_install();
+
+        // Assert -- on non-Arch systems (or when not installed via pacman),
+        // this should return false. On CI / dev machines it will almost
+        // certainly be false. The main goal is verifying no panic.
+        let _ = result; // value consumed, test passes if no panic
+    }
+
+    #[test]
+    fn test_release_info_debug_impl() {
+        // Setup
+        let asset = updater::ReleaseAsset {
+            name: "md-docs-x86_64-linux".to_string(),
+            download_url: "https://example.com/asset".to_string(),
+        };
+        let release = updater::ReleaseInfo {
+            tag_name: "v0.2.0".to_string(),
+            version: Version::new(0, 2, 0),
+            assets: vec![asset],
+        };
+
+        // Execute -- format with Debug trait
+        let debug_str = format!("{:?}", release);
+
+        // Assert -- Debug output should contain field names and values
+        assert!(
+            debug_str.contains("ReleaseInfo"),
+            "Debug output should contain struct name: {}",
+            debug_str
+        );
+        assert!(
+            debug_str.contains("v0.2.0"),
+            "Debug output should contain tag_name: {}",
+            debug_str
+        );
+        assert!(
+            debug_str.contains("md-docs-x86_64-linux"),
+            "Debug output should contain asset name: {}",
+            debug_str
+        );
+
+        // Also verify ReleaseAsset Debug independently
+        let asset2 = updater::ReleaseAsset {
+            name: "test-asset".to_string(),
+            download_url: "https://example.com/dl".to_string(),
+        };
+        let asset_debug = format!("{:?}", asset2);
+        assert!(
+            asset_debug.contains("ReleaseAsset"),
+            "ReleaseAsset Debug should contain struct name: {}",
+            asset_debug
+        );
+    }
+}
+
+// =========================================================================
+// Updater — integration tests (require network)
+// =========================================================================
+
+mod updater_integration {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn test_fetch_latest_release() {
+        // Execute -- calls the real GitHub API
+        let result = updater::fetch_latest_release();
+
+        // Assert
+        assert!(
+            result.is_ok(),
+            "fetch_latest_release should succeed: {:?}",
+            result.err()
+        );
+
+        let release = result.unwrap();
+
+        // tag_name should follow the "vX.Y.Z" convention
+        assert!(
+            release.tag_name.starts_with('v'),
+            "tag_name should start with 'v': got '{}'",
+            release.tag_name
+        );
+
+        // version should be valid semver (already parsed, but verify non-zero)
+        assert!(
+            release.version.major > 0 || release.version.minor > 0 || release.version.patch > 0,
+            "release version should have at least one non-zero component: {}",
+            release.version
+        );
+
+        // assets may be empty if no releases exist yet, but the vec itself should be present
+        // (this is verified by the type system, but we can log for visibility)
+        if release.assets.is_empty() {
+            eprintln!(
+                "Note: release {} has no assets (may be pre-release or source-only)",
+                release.tag_name
+            );
+        } else {
+            // If assets exist, verify they have non-empty names and URLs
+            for asset in &release.assets {
+                assert!(
+                    !asset.name.is_empty(),
+                    "asset name should not be empty"
+                );
+                assert!(
+                    asset.download_url.starts_with("https://"),
+                    "asset download_url should be HTTPS: got '{}'",
+                    asset.download_url
+                );
+            }
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn test_check_for_update() {
+        // Execute -- calls the real GitHub API
+        let result = updater::check_for_update();
+
+        // Assert
+        assert!(
+            result.is_ok(),
+            "check_for_update should succeed: {:?}",
+            result.err()
+        );
+
+        let check = result.unwrap();
+
+        // Verify we got one of the valid enum variants
+        match &check {
+            updater::UpdateCheck::UpToDate(version) => {
+                assert!(
+                    version.major > 0 || version.minor > 0 || version.patch > 0,
+                    "UpToDate version should be valid: {}",
+                    version
+                );
+            }
+            updater::UpdateCheck::UpdateAvailable {
+                current,
+                latest,
+                release,
+            } => {
+                assert!(
+                    latest > current,
+                    "latest ({}) should be greater than current ({})",
+                    latest,
+                    current
+                );
+                assert!(
+                    !release.tag_name.is_empty(),
+                    "release tag_name should not be empty"
+                );
+            }
+            updater::UpdateCheck::AurInstall => {
+                // Valid variant -- nothing more to assert
+            }
+        }
+
+        // Verify Debug is implemented on UpdateCheck
+        let debug_str = format!("{:?}", check);
+        assert!(
+            !debug_str.is_empty(),
+            "UpdateCheck Debug output should not be empty"
+        );
     }
 }

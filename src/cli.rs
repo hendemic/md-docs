@@ -62,6 +62,13 @@ pub enum Commands {
         action: BrandCommands,
     },
 
+    /// Check for updates and update md-docs to the latest version.
+    Update {
+        /// Only check for updates, don't install.
+        #[arg(long)]
+        check: bool,
+    },
+
     /// Show current configuration (layered: defaults <- global <- project <- CLI).
     Config,
 
@@ -149,6 +156,8 @@ pub fn run() -> anyhow::Result<()> {
         Commands::Brands { action } => match action {
             BrandCommands::List => controller.list_brands(),
         },
+
+        Commands::Update { check } => controller.self_update(check),
 
         Commands::Config => controller.show_config(),
 
