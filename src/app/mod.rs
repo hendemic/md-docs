@@ -625,6 +625,13 @@ impl AppController {
         for item in &items {
             self.emit(CliMessage::Plain(format!("  - {}", item.display())));
         }
+        if data_dir.exists() {
+            self.emit(CliMessage::Plain(
+                "\nNote: the data directory contains cloned template repos. \
+                 These will be re-downloaded on reinstall."
+                    .to_string(),
+            ));
+        }
 
         // 4. Prompt for confirmation
         {

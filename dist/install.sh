@@ -230,7 +230,7 @@ check_path() {
 
 main() {
     printf "\n"
-    printf "  \033[1mmd-docs installer\033[0m\n"
+    printf "  \033[1mmdocs installer\033[0m\n"
     printf "\n"
 
     detect_platform
